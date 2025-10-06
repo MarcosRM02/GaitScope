@@ -1,0 +1,25 @@
+Ahora esta genial. UN par de preguntas. A que freq se mueve esa linea, y que haces para pintarlas, se replotean las graficas o que pasa?
+
+Summarized conversation history
+
+GitHub Copilot
+
+Breve respuesta técnica:
+
+A qué frecuencia se mueve la línea:
+
+Cuando el vídeo está en Play la actualización se hace en el slot _on_timer, y el QTimer se arranca con intervalo int(1000.0 / self.fps) (detectado con OpenCV). Así que la posición X de la línea (la InfiniteLine vertical) se actualiza a la misma frecuencia del vídeo (aprox. la FPS del archivo; si la detección falla usa 30 fps por defecto).
+Internamente la posición X se calcula a partir del frame actual y del muestreo CSV: idx = round((frame / fps) * csv_sampling_rate) y luego csv_time = idx / csv_sampling_rate. Por tanto la X está alineada a muestras CSV (64 Hz por defecto) — si la FPS del vídeo produce varios frames por la misma muestra CSV la X puede repetirse en frames consecutivos.
+Qué se repinta y qué no:
+
+Las curvas L/R (los 4 grupos) se trazan una sola vez en load_csvs() con plot_widget.plot(...).
+No se "replotan" esas curvas en cada frame. Sólo se actualizan elementos ligeros:
+self.cursor_line (pg.InfiniteLine): se mueve con setPos(csv_time) cada tick del timer.
+self.cursor_segment (pg.PlotDataItem) o self.cursor_qline (QGraphicsLineItem) se actualizan con setData(...) o setLine(...) para dibujar el segmento entre L y R. Esto también ocurre en _update_csv_cursor_from_video() que es llamado por cada frame (no está throttled).
+Los ScatterPlotItem (marcadores) sí están throttled: sólo se actualizan cada self._plot_update_interval (por defecto 1/20 → 20 Hz) para ahorrar CPU.
+Resumen: las curvas estáticas no se recomputan; sólo se mueven/actualizan los items (línea vertical, segmento, marcadores) mediante llamadas a setPos/setData, que son económicas.
+Detalles relevantes que afectan percepción visual:
+
+La X está quantizada a la resolución del CSV (64 Hz). Eso puede dar la sensación de "saltos" si la FPS del vídeo no casa con 64 Hz.
+Intenté forzar orden de pintado (ZValue muy alto para el cursor_segment) pero si sigues viendo la línea debajo puedo aplicar la solución más robusta: dibujarla en un overlay transparente (un QWidget encima de PlotWidget) para garantizar que siempre esté por encima y mantener el color brillante que pides.
+Si quieres, implemento el overlay para asegurar visibilidad y mantener exactamente el color. ¿Lo hago?

@@ -1,0 +1,30 @@
+# Ignore the P1 folder and everything inside
+/P1/
+
+# Ignore video files
+*.mp4
+**/*.mp4
+
+# Ignore common virtual environment folders
+venv/
+.venv/
+env/
+ENV/
+venv*/
+
+# Ignore Python cache and compiled files
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Misc IDE/editor files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+
+# Pytest cache
+.pytest_cache/
