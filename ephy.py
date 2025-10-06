@@ -162,9 +162,9 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
         # Rutas embebidas
         base_dir = os.path.abspath(os.path.dirname(__file__))
-        self.embedded_video_path = os.path.join(base_dir, 'P1/FP/1/Gait_1_anonymized.mp4')
-        # CSVs embebidos (por defecto)
-        self.csv_paths = [os.path.join(base_dir, 'P1', 'FP', '1', 'L.csv')]
+        # No cargar recursos embebidos por defecto; se cargarán mediante selector
+        self.embedded_video_path = ''
+        self.csv_paths = []
 
         # Instrumentación diagnóstica (removed)
 #         self._diag_enabled = True
@@ -183,9 +183,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
         # Crear UI
         self._build_ui()
 
-        print("[ephy] UI built, calling load_embedded_resources", flush=True)
-        # Intentar cargar recursos embebidos
-        self.load_embedded_resources()
+        print("[ephy] UI built, no embedded resources loaded at start", flush=True)
+        # no automatic load of embedded resources at init
         print("[ephy] VideoPlayer.__init__ end", flush=True)
 
     def _build_ui(self):
@@ -244,6 +243,45 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.cmb_speed.setCurrentIndex(default_idx)
             self.cmb_speed.currentIndexChanged.connect(lambda i: self.set_playback_rate(self._speed_options[int(i)]))
             controls_layout.addWidget(self.cmb_speed)
+        except Exception:
+            pass
+
+        # Dataset selector (replaced): cascade de desplegables Subject -> Group -> Session + botón Load
+        try:
+            controls_layout.addWidget(QtWidgets.QLabel('Subject:'))
+            self.combo_subject = QtWidgets.QComboBox()
+            self.combo_subject.setToolTip('Selecciona carpeta P (ej. P1, P2) dentro de data/')
+            controls_layout.addWidget(self.combo_subject)
+
+            controls_layout.addWidget(QtWidgets.QLabel('Category:'))
+            self.combo_group = QtWidgets.QComboBox()
+            self.combo_group.setToolTip('Selecciona subcarpeta (FP, NP, SP, etc.)')
+            self.combo_group.setEnabled(False)
+            controls_layout.addWidget(self.combo_group)
+
+            controls_layout.addWidget(QtWidgets.QLabel('Session:'))
+            self.combo_session = QtWidgets.QComboBox()
+            self.combo_session.setToolTip('Selecciona sesión (ej. 1, 2, ...)')
+            self.combo_session.setEnabled(False)
+            controls_layout.addWidget(self.combo_session)
+
+            self.btn_load_dataset = QtWidgets.QPushButton('Load Dataset')
+            self.btn_load_dataset.clicked.connect(self.on_load_dataset_clicked)
+            self.btn_load_dataset.setEnabled(False)
+            controls_layout.addWidget(self.btn_load_dataset)
+
+            # poblar subjects desde data/
+            try:
+                self.populate_subjects()
+            except Exception:
+                pass
+
+            # conectar señales para poblar siguientes niveles cuando cambie selección
+            try:
+                self.combo_subject.currentIndexChanged.connect(self.on_subject_changed)
+                self.combo_group.currentIndexChanged.connect(self.on_group_changed)
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -1015,7 +1053,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.plot_widget.addItem(self.scatter_L)
             self.scatter_L.setData(x=[], y=[])
         if self.scatter_R is None:
-            self.scatter_R = pg.ScatterPlotItem(size=10, brush=pg.mkBrush(0, 200, 200), pen=pg.mkPen('k'))
+            # use slightly darker blue for R markers to match footprint shade
+            self.scatter_R = pg.ScatterPlotItem(size=10, brush=pg.mkBrush(33, 97, 140), pen=pg.mkPen('k'))
             self.plot_widget.addItem(self.scatter_R)
             self.scatter_R.setData(x=[], y=[])
 
@@ -1149,10 +1188,10 @@ class VideoPlayer(QtWidgets.QMainWindow):
                 try:
                     df_gait = pd.read_csv(gait_file, delimiter=';')
                 except Exception:
-                    try:
-                        df_gait = pd.read_csv(gait_file)
-                    except Exception:
-                        df_gait = None
+                    df_gait = pd.read_csv(gait_file)
+                except Exception as e:
+                    print(f"[ephy] load_gaitrite_data: error opening {gait_file}: {e}", flush=True)
+                    df_gait = None
 
             # try to load precise contours first
             footprints_left_df = None
@@ -1174,7 +1213,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
             drew = False
             # if precise contours exist, draw them
-            for df, color in ((footprints_left_df, '#E74C3C'), (footprints_right_df, '#3498DB')):
+            # left footprints stay red, right footprints use a slightly darker blue
+            for df, color in ((footprints_left_df, '#E74C3C'), (footprints_right_df, '#21618C')):
                 if df is None or df.empty:
                     continue
                 try:
@@ -1317,6 +1357,582 @@ class VideoPlayer(QtWidgets.QMainWindow):
                 self.gaitrite_plot.setYRange(-padding_y, CARPET_H + padding_y, padding=0)
             except Exception:
                 pass
+        except Exception:
+            pass
+
+    def discover_data_sets(self):
+        """Busca carpetas de datos bajo el proyecto que contengan video (*.mp4) o CSV (L.csv).
+        Retorna lista de tuplas (label, abs_path).
+        """
+        results = []
+        base_dir = os.path.abspath(os.path.dirname(__file__))
+        roots = [os.path.join(base_dir, 'data'), base_dir]
+        seen = set()
+        for root in roots:
+            if not os.path.isdir(root):
+                continue
+            # limitar búsqueda a profundidad razonable: revisar subdirs hasta profundidad 3
+            for dirpath, dirnames, filenames in os.walk(root):
+                # compute depth relative to root
+                rel = os.path.relpath(dirpath, root)
+                depth = 0 if rel == '.' else rel.count(os.sep) + 1
+                if depth > 3:
+                    # prune deeper directories
+                    dirnames[:] = []
+                    continue
+                # check for mp4 or L.csv presence
+                has_video = any(f.lower().endswith('.mp4') for f in filenames)
+                has_lcsv = any(f.lower() == 'l.csv' for f in filenames) or any(f.lower().endswith('l.csv') and f.lower() != 'l.csv' for f in filenames)
+                if has_video or has_lcsv:
+                    abspath = os.path.abspath(dirpath)
+                    if abspath in seen:
+                        continue
+                    seen.add(abspath)
+                    label = os.path.relpath(dirpath, base_dir)
+                    results.append((label, abspath))
+        # also try to include obvious P* top-level folders if none found
+        if not results:
+            for p in os.listdir(base_dir):
+                pth = os.path.join(base_dir, p)
+                if os.path.isdir(pth) and p.upper().startswith('P'):
+                    results.append((p, pth))
+        # ensure deterministic order
+        results.sort()
+        return results
+
+    # ------------------ Nuevos helpers para selectores encadenados ------------------
+    def populate_subjects(self):
+        """Pobla self.combo_subject con carpetas dentro de data/ (solo directorios que empiecen por 'P').
+        Deja una opción placeholder al inicio para que nada esté seleccionado por defecto.
+        """
+        try:
+            base_dir = os.path.abspath(os.path.dirname(__file__))
+            data_dir = os.path.join(base_dir, 'data')
+            self.combo_subject.clear()
+            # start disabled until we populate
+            try:
+                self.combo_group.clear()
+                self.combo_session.clear()
+                self.combo_group.setEnabled(False)
+                self.combo_session.setEnabled(False)
+                self.btn_load_dataset.setEnabled(False)
+            except Exception:
+                pass
+
+            if not os.path.isdir(data_dir):
+                # keep subject combo disabled and empty
+                try:
+                    self.combo_subject.setEnabled(False)
+                except Exception:
+                    pass
+                return
+
+            subjects = [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
+            # keep only P* folders to match dataset naming
+            subjects = [d for d in subjects if d.upper().startswith('P')]
+            subjects.sort()
+
+            # add placeholder first so nothing is 'selected' by default
+            try:
+                self.combo_subject.addItem('Select subject...', userData=None)
+            except Exception:
+                pass
+
+            for s in subjects:
+                self.combo_subject.addItem(s, userData=os.path.join(data_dir, s))
+
+            # ensure no real subject is selected initially
+            try:
+                self.combo_subject.setCurrentIndex(0)
+                self.combo_subject.setEnabled(True)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def on_subject_changed(self, index: int):
+        try:
+            print(f"[ephy] on_subject_changed: index={index}", flush=True)
+            if index < 0:
+                return
+            subject_path = self.combo_subject.itemData(index)
+            if not subject_path:
+                # disable downstream
+                try:
+                    self.combo_group.clear()
+                    self.combo_session.clear()
+                    self.combo_group.setEnabled(False)
+                    self.combo_session.setEnabled(False)
+                    self.btn_load_dataset.setEnabled(False)
+                except Exception:
+                    pass
+                return
+            self.populate_groups(subject_path)
+            # enable load button once a subject is selected (but only enable when groups/sessions present)
+            try:
+                self.btn_load_dataset.setEnabled(True)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def populate_groups(self, subject_path: str):
+        """Pobla self.combo_group con subdirectorios del subject (FP, NP, etc.), ignorando SITDOWN y STAND.
+        Añade un placeholder al inicio para que no haya selección por defecto.
+        """
+        try:
+            self.combo_group.clear()
+            self.combo_session.clear()
+            # start disabled until we populate
+            self.combo_group.setEnabled(False)
+            self.combo_session.setEnabled(False)
+            if not subject_path or not os.path.isdir(subject_path):
+                return
+            groups = [d for d in os.listdir(subject_path) if os.path.isdir(os.path.join(subject_path, d))]
+            # ignore these categories
+            ignore = {'sitdown', 'stand'}
+            groups = [g for g in groups if g.lower() not in ignore]
+            groups.sort()
+
+            # add placeholder first so nothing is selected by default
+            try:
+                self.combo_group.addItem('Select category...', userData=None)
+            except Exception:
+                pass
+
+            for g in groups:
+                self.combo_group.addItem(g, userData=os.path.join(subject_path, g))
+
+            # ensure no real group is selected initially
+            try:
+                self.combo_group.setCurrentIndex(0)
+                # enable the combo so user can open it and choose
+                self.combo_group.setEnabled(True)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def on_group_changed(self, index: int):
+        try:
+            print(f"[ephy] on_group_changed: index={index}", flush=True)
+            if index < 0:
+                return
+            group_path = self.combo_group.itemData(index)
+            if not group_path:
+                # disable sessions
+                try:
+                    self.combo_session.clear()
+                    self.combo_session.setEnabled(False)
+                except Exception:
+                    pass
+                return
+            self.populate_sessions(group_path)
+        except Exception:
+            pass
+
+    def populate_sessions(self, group_path: str):
+        """Pobla self.combo_session con subdirectorios de la categoría (1,2,...) o con archivos si no hay subdirs.
+        Añade un placeholder al inicio para que no haya selección por defecto.
+        """
+        try:
+            self.combo_session.clear()
+            self.combo_session.setEnabled(False)
+            if not group_path or not os.path.isdir(group_path):
+                return
+            # preferir subdirectorios numéricos
+            subs = [d for d in os.listdir(group_path) if os.path.isdir(os.path.join(group_path, d))]
+            subs.sort()
+
+            # add placeholder first
+            try:
+                self.combo_session.addItem('Select session...', userData=None)
+            except Exception:
+                pass
+
+            if subs:
+                for s in subs:
+                    self.combo_session.addItem(s, userData=os.path.join(group_path, s))
+            else:
+                # si no hay subdirs, permitir seleccionar la misma carpeta (por ejemplo si L.csv está en group)
+                self.combo_session.addItem(os.path.basename(group_path), userData=group_path)
+
+            # ensure no real session is selected initially
+            try:
+                self.combo_session.setCurrentIndex(0)
+                self.combo_session.setEnabled(True)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def on_load_dataset_clicked(self):
+        """Construye la ruta seleccionada y llama a configure_dataset_from_path para cargar video/CSV."""
+        try:
+            subj_idx = self.combo_subject.currentIndex()
+            if subj_idx < 0:
+                QtWidgets.QMessageBox.information(self, 'Info', 'Selecciona primero un Subject')
+                return
+            subj_path = self.combo_subject.itemData(subj_idx)
+
+            grp_idx = self.combo_group.currentIndex()
+            grp_path = self.combo_group.itemData(grp_idx) if grp_idx >= 0 else None
+
+            sess_idx = self.combo_session.currentIndex()
+            sess_path = self.combo_session.itemData(sess_idx) if sess_idx >= 0 else None
+
+            # preferir la ruta de sesión si existe, sino la de grupo, sino subject
+            target = None
+            if sess_path:
+                target = sess_path
+            elif grp_path:
+                target = grp_path
+            else:
+                target = subj_path
+
+            print(f"[ephy] on_load_dataset_clicked: subj={subj_path}, group={grp_path}, session={sess_path}, target={target}", flush=True)
+
+            if not target or not os.path.isdir(target):
+                QtWidgets.QMessageBox.warning(self, 'Aviso', f'Ruta seleccionada no válida: {target}')
+                return
+
+            # llamar a configurador que buscará MP4/L.csv recursivamente
+            self.configure_dataset_from_path(target)
+
+            # Reset playback and UI to start of dataset to avoid requiring manual Reset
+            try:
+                # stop playback if running
+                try:
+                    if getattr(self, 'is_playing', False):
+                        self.stop()
+                except Exception:
+                    pass
+
+                # ensure frame index zero and slider reset
+                try:
+                    self.current_frame = 0
+                except Exception:
+                    pass
+                try:
+                    self.progress_slider.setValue(0)
+                except Exception:
+                    pass
+
+                # seek video capture to start and show first frame if available
+                try:
+                    if getattr(self, 'video_cap', None) is not None and getattr(self.video_cap, 'isOpened', lambda: False)():
+                        try:
+                            self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                            self.show_frame()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                # update labels and csv cursor
+                try:
+                    self.update_time_label()
+                except Exception:
+                    pass
+                try:
+                    self._update_csv_cursor_from_video()
+                except Exception:
+                    pass
+
+                try:
+                    self.btn_play.setText('▶ Play')
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"[ephy] on_load_dataset_clicked: reset error: {e}", flush=True)
+
+            # mostrar mensaje en status bar
+            try:
+                self.statusBar().showMessage(f'Loaded dataset: {target}', 5000)
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[ephy] on_load_dataset_clicked error: {e}", flush=True)
+            pass
+
+    def configure_dataset_from_path(self, path: str):
+        """Configura rutas (video + csv_paths) a partir de una carpeta de datos y carga los recursos.
+        Busca primero MP4 y luego L.csv en la carpeta; si no los encuentra, busca recursivamente.
+        """
+        try:
+            # normalize
+            base = os.path.abspath(path)
+            print(f"[ephy] configure_dataset_from_path: scanning base={base}", flush=True)
+            video_found = None
+            lcsv_found = None
+            # prefer files in the folder itself first
+            try:
+                for fn in sorted(os.listdir(base)):
+                    if fn.lower().endswith('.mp4') and video_found is None:
+                        video_found = os.path.join(base, fn)
+                    if fn.lower() == 'l.csv' and lcsv_found is None:
+                        lcsv_found = os.path.join(base, fn)
+                # if not found, walk shallowly
+                if video_found is None or lcsv_found is None:
+                    for dirpath, dirnames, filenames in os.walk(base):
+                        # skip SITDOWN/STAND dirs explicitly
+                        dirnames[:] = [d for d in dirnames if d.lower() not in ('sitdown', 'stand')]
+                        for fn in filenames:
+                            if video_found is None and fn.lower().endswith('.mp4'):
+                                video_found = os.path.join(dirpath, fn)
+                            if lcsv_found is None and fn.lower().endswith('l.csv'):
+                                lcsv_found = os.path.join(dirpath, fn)
+                        # stop early if both found
+                        if video_found is not None and lcsv_found is not None:
+                            break
+            except Exception:
+                pass
+
+            print(f"[ephy] configure_dataset_from_path: video_found={video_found}, lcsv_found={lcsv_found}", flush=True)
+
+            # set instance paths
+            if video_found is not None:
+                self.embedded_video_path = video_found
+                try:
+                    self.load_video(self.embedded_video_path)
+                except Exception as e:
+                    print(f"[ephy] configure_dataset_from_path: error loading video {e}", flush=True)
+            else:
+                # no video found: clear current video and inform user
+                print(f"[ephy] configure_dataset_from_path: no video in {base}", flush=True)
+                try:
+                    self.statusBar().showMessage('No video found in selected dataset', 5000)
+                except Exception:
+                    pass
+
+            if lcsv_found is not None:
+                self.csv_paths = [lcsv_found]
+            else:
+                # fallback: try to find any csv in folder
+                any_csv = None
+                try:
+                    for dirpath, dirnames, filenames in os.walk(base):
+                        dirnames[:] = [d for d in dirnames if d.lower() not in ('sitdown', 'stand')]
+                        for fn in filenames:
+                            if fn.lower().endswith('.csv'):
+                                any_csv = os.path.join(dirpath, fn)
+                                break
+                        if any_csv:
+                            break
+                except Exception:
+                    any_csv = None
+                if any_csv:
+                    self.csv_paths = [any_csv]
+                else:
+                    self.csv_paths = []
+
+            print(f"[ephy] configure_dataset_from_path: final csv_paths={self.csv_paths}", flush=True)
+
+            # Ensure footprints exist: if both left+right already present in dataset folder, do nothing.
+            try:
+                left_targets = [os.path.join(base, 'generated_footprints_left.csv'), os.path.join(base, 'footprints_left.csv')]
+                right_targets = [os.path.join(base, 'generated_footprints_right.csv'), os.path.join(base, 'footprints_right.csv')]
+                left_exists = any(os.path.exists(p) for p in left_targets)
+                right_exists = any(os.path.exists(p) for p in right_targets)
+
+                if left_exists and right_exists:
+                    print(f"[ephy] configure_dataset_from_path: footprints already present in {base}, skipping generation", flush=True)
+                else:
+                    # First attempt: if gaitrite_test.csv exists in the dataset folder, use its Yarray column to generate footprints
+                    gait_file = os.path.join(base, 'gaitrite_test.csv')
+                    generated_any = False
+                    if os.path.exists(gait_file):
+                        try:
+                            try:
+                                df_g = pd.read_csv(gait_file, delimiter=';')
+                            except Exception:
+                                df_g = pd.read_csv(gait_file)
+                        except Exception as e:
+                            print(f"[ephy] configure_dataset_from_path: failed reading {gait_file}: {e}", flush=True)
+                            df_g = None
+
+                        if df_g is not None and not df_g.empty:
+                            # required columns for decoding
+                            req = {'Gait_Id', 'Event', 'Foot', 'Xback', 'Xfront', 'Ybottom', 'Ytop', 'Yarray'}
+                            if req.issubset(set(df_g.columns)):
+                                try:
+                                    # try to reuse decoder from export_yarray_footprints if available
+                                    try:
+                                        from export_yarray_footprints import decode_yarray_to_xy
+                                    except Exception:
+                                        decode_yarray_to_xy = None
+
+                                    accum = {0: [], 1: []}
+                                    for _, r in df_g.iterrows():
+                                        try:
+                                            foot = int(r['Foot']) if pd.notna(r['Foot']) else None
+                                        except Exception:
+                                            foot = None
+                                        if foot not in (0, 1):
+                                            continue
+                                        try:
+                                            Xback_cm = float(r['Xback']) * 1.27
+                                            Xfront_cm = float(r['Xfront']) * 1.27
+                                            Ybottom_cm = float(r['Ybottom']) * 1.27
+                                            Ytop_cm = float(r['Ytop']) * 1.27
+                                        except Exception:
+                                                                                       continue
+                                        yarray_raw = str(r['Yarray']) if pd.notna(r['Yarray']) else ''
+                                        if decode_yarray_to_xy is not None:
+                                            df_xy = decode_yarray_to_xy(yarray_raw, Xback_cm, Xfront_cm, Ybottom_cm, Ytop_cm)
+                                        else:
+                                            # fallback implementation of decode similar to exporter
+                                            try:
+                                                vals = np.fromiter((ord(c) for c in yarray_raw), dtype=float, count=len(yarray_raw))
+                                                if vals.size == 0 or not np.isfinite(vals).all():
+                                                    df_xy = None
+                                                else:
+                                                    lo = np.percentile(vals, 1)
+                                                    hi = np.percentile(vals, 99)
+                                                    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+                                                        lo, hi = float(np.min(vals)), float(np.max(vals))
+                                                    if hi == lo:
+                                                        hi = lo + 1e-9
+                                                    vals_norm = (vals - lo) / (hi - lo)
+                                                    N = vals.shape[0]
+                                                    x_cm = Ybottom_cm + vals_norm * (Ytop_cm - Ybottom_cm)
+                                                    y_cm = np.linspace(Xback_cm, Xfront_cm, N)
+                                                    df_xy = pd.DataFrame({
+                                                        'sample_idx': np.arange(N, dtype=int),
+                                                        'x_cm': x_cm.astype(float),
+                                                        'y_cm': y_cm.astype(float),
+                                                    })
+                                            except Exception:
+                                                df_xy = None
+
+                                        if df_xy is None or df_xy.empty:
+                                            continue
+
+                                        df_xy = df_xy.copy()
+                                        df_xy['participant'] = os.path.basename(base)
+                                        df_xy['source_file'] = os.path.basename(gait_file)
+                                        df_xy['gait_id'] = int(r['Gait_Id']) if pd.notna(r['Gait_Id']) else None
+                                        df_xy['event'] = int(r['Event']) if pd.notna(r['Event']) else None
+                                        df_xy['foot'] = foot
+                                        df_xy['xback_cm'] = Xback_cm
+                                        df_xy['xfront_cm'] = Xfront_cm
+                                        df_xy['ybottom_cm'] = Ybottom_cm
+                                        df_xy['ytop_cm'] = Ytop_cm
+                                        df_xy['n_samples'] = int(df_xy.shape[0])
+
+                                        accum[foot].append(df_xy)
+                                    # write outputs for each foot if missing
+                                    try:
+                                        target_left = os.path.join(base, 'generated_footprints_left.csv')
+                                        target_right = os.path.join(base, 'generated_footprints_right.csv')
+                                        if not left_exists and accum[0]:
+                                            out_left = pd.concat(accum[0], ignore_index=True).sort_values(['gait_id', 'event', 'sample_idx']).reset_index(drop=True)
+                                            out_left.to_csv(target_left, index=False)
+                                            print(f"[ephy] configure_dataset_from_path: wrote {target_left}", flush=True)
+                                            generated_any = True
+                                            left_exists = True
+                                        if not right_exists and accum[1]:
+                                            out_right = pd.concat(accum[1], ignore_index=True).sort_values(['gait_id', 'event', 'sample_idx']).reset_index(drop=True)
+                                            out_right.to_csv(target_right, index=False)
+                                            print(f"[ephy] configure_dataset_from_path: wrote {target_right}", flush=True)
+                                            generated_any = True
+                                            right_exists = True
+                                        if generated_any:
+                                            try:
+                                                self.statusBar().showMessage('Generated footprints from gaitrite_test.csv', 5000)
+                                            except Exception:
+                                                pass
+                                    except Exception as e:
+                                        print(f"[ephy] configure_dataset_from_path: error writing generated footprints: {e}", flush=True)
+                                except Exception as e:
+                                    print(f"[ephy] configure_dataset_from_path: error processing {gait_file}: {e}", flush=True)
+                            else:
+                                print(f"[ephy] configure_dataset_from_path: gaitrite_test.csv missing required columns in {base}", flush=True)
+                        else:
+                            print(f"[ephy] configure_dataset_from_path: gaitrite_test.csv empty or unreadable in {base}", flush=True)
+
+                    # If gaitrite generation did not produce footprints, fallback to participant-level exporter using *_tests_*.csv
+                    if not (left_exists and right_exists) and not generated_any:
+                        try:
+                            from pathlib import Path
+                            import shutil
+                            participant_dir = None
+                            p = Path(base)
+                            for candidate in [p] + list(p.parents):
+                                try:
+                                    if candidate.name.upper().startswith('P') and candidate.is_dir():
+                                        participant_dir = candidate
+                                        break
+                                except Exception:
+                                    continue
+                            if participant_dir is None:
+                                participant_dir = p
+
+                            # attempt to find tests CSVs in participant dir
+                            tests = list(participant_dir.glob('*_tests_*.csv'))
+                        except Exception:
+                            tests = []
+
+                        if tests:
+                            try:
+                                import export_yarray_footprints as eyf
+                            except Exception as e:
+                                print(f"[ephy] configure_dataset_from_path: cannot import export_yarray_footprints: {e}", flush=True)
+                                eyf = None
+
+                            if eyf is not None:
+                                try:
+                                    print(f"[ephy] configure_dataset_from_path: invoking export_yarray_footprints on {participant_dir}", flush=True)
+                                    res = eyf.process_participant(participant_dir, conv=1.27, overwrite=False)
+                                    print(f"[ephy] configure_dataset_from_path: export result={res}", flush=True)
+                                except Exception as e:
+                                    print(f"[ephy] configure_dataset_from_path: export error: {e}", flush=True)
+
+                                # copy any produced footprints into the dataset folder, but only for missing targets
+                                try:
+                                    produced_map = {
+                                        'left': [participant_dir / 'generated_footprints_left.csv', participant_dir / 'footprints_left.csv'],
+                                        'right': [participant_dir / 'generated_footprints_right.csv', participant_dir / 'footprints_right.csv']
+                                    }
+                                    target_left = os.path.join(base, 'generated_footprints_left.csv')
+                                    target_right = os.path.join(base, 'generated_footprints_right.csv')
+
+                                    if not left_exists:
+                                        for src in produced_map['left']:
+                                            if src.exists():
+                                                shutil.copy2(str(src), target_left)
+                                                print(f"[ephy] configure_dataset_from_path: copied {src} -> {target_left}", flush=True)
+                                                left_exists = True
+                                                break
+                                    if not right_exists:
+                                        for src in produced_map['right']:
+                                            if src.exists():
+                                                shutil.copy2(str(src), target_right)
+                                                print(f"[ephy] configure_dataset_from_path: copied {src} -> {target_right}", flush=True)
+                                                right_exists = True
+                                                break
+
+                                    if left_exists or right_exists:
+                                        try:
+                                            self.statusBar().showMessage('Footprints generated/copied for gaitrite (dataset folder updated)', 5000)
+                                        except Exception:
+                                            pass
+                                except Exception as e:
+                                    print(f"[ephy] configure_dataset_from_path: error copying footprints: {e}", flush=True)
+                        else:
+                            print(f"[ephy] configure_dataset_from_path: no *_tests_*.csv in {participant_dir}, skipping participant export", flush=True)
+            except Exception as e:
+                print(f"[ephy] configure_dataset_from_path: unexpected error in footprint generation: {e}", flush=True)
+
+            # After configuring paths, reload CSVs and gaitrite data
+            try:
+                self.load_csvs()
+            except Exception as e:
+                print(f"[ephy] configure_dataset_from_path: load_csvs error: {e}", flush=True)
+            try:
+                self.load_gaitrite_data()
+            except Exception as e:
+                print(f"[ephy] configure_dataset_from_path: load_gaitrite_data error: {e}", flush=True)
         except Exception:
             pass
 
