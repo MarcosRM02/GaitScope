@@ -8,10 +8,12 @@ Handles all plotting and visualization operations including:
 - Plot updates and animations
 """
 
-from typing import Optional, List
+import time
 import numpy as np
+import pandas as pd
+from typing import Optional, List, Tuple
+from PyQt5 import QtCore, QtWidgets, QtGui
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtWidgets
 
 from ..constants import (
     PLOT_COLORS,
@@ -26,6 +28,7 @@ from ..constants import (
     CARPET_BACKGROUND_COLOR,
     CARPET_BORDER_COLOR,
     PLOT_UPDATE_INTERVAL,
+    GAITRITE_CONVERSION_FACTOR,
 )
 
 
@@ -55,13 +58,21 @@ class PlotManager:
         # Cursor elements
         self.cursor_line: Optional[pg.InfiniteLine] = None
         self.cursor_segment: Optional[pg.PlotDataItem] = None
+        self.cursor_qline: Optional[QtWidgets.QGraphicsLineItem] = None  # QGraphicsLineItem for Z-control
         self.scatter_L: Optional[pg.ScatterPlotItem] = None
         self.scatter_R: Optional[pg.ScatterPlotItem] = None
+        
+        # GaitRite elements
+        self.gaitrite_trajectory_item: Optional[pg.PlotDataItem] = None
+        self.gaitrite_footprint_items: List = []
         
         # Configuration
         self.r_offset: float = DEFAULT_R_OFFSET
         self.marker_group_index_L: int = 0
         self.marker_group_index_R: int = 0
+        
+        # Fixed line height for cursor (constant vertical span)
+        self.fixed_line_height: float = 20000.0  # Fixed height in data units
         
         # Update throttling
         self._last_plot_update: float = 0.0
@@ -94,6 +105,11 @@ class PlotManager:
                 x_data, y_L, pen=pen_L, 
                 name=f'L Group {group_idx+1}'
             )
+            # Set low Z-value for data lines so cursor stays on top
+            try:
+                plot_item_L.setZValue(0)
+            except Exception:
+                pass
             self.plot_items_L.append(plot_item_L)
             
             # Right side
@@ -105,9 +121,14 @@ class PlotManager:
                     style=QtCore.Qt.DashLine
                 )
                 plot_item_R = self.plot_widget.plot(
-                    x_data, y_R, pen=pen_R, 
+                    x_data, y_R, pen=pen_R,
                     name=f'R Group {group_idx+1}'
                 )
+                # Set low Z-value for data lines so cursor stays on top
+                try:
+                    plot_item_R.setZValue(0)
+                except Exception:
+                    pass
                 self.plot_items_R.append(plot_item_R)
         
         # Create scatter items for markers
@@ -120,30 +141,32 @@ class PlotManager:
         """Create scatter plot items for position markers."""
         if self.scatter_L is None:
             self.scatter_L = pg.ScatterPlotItem(
-                size=10, 
-                brush=pg.mkBrush(*MARKER_LEFT_COLOR), 
-                pen=pg.mkPen('k')
+                size=10,
+                pen=pg.mkPen(None),
+                brush=pg.mkBrush(*MARKER_LEFT_COLOR)
             )
             self.plot_widget.addItem(self.scatter_L)
-            self.scatter_L.setData(x=[], y=[])
-            self.scatter_L.setVisible(False)
         
         if self.scatter_R is None:
             self.scatter_R = pg.ScatterPlotItem(
-                size=10, 
-                brush=pg.mkBrush(*MARKER_RIGHT_COLOR), 
-                pen=pg.mkPen('k')
+                size=10,
+                pen=pg.mkPen(None),
+                brush=pg.mkBrush(*MARKER_RIGHT_COLOR)
             )
             self.plot_widget.addItem(self.scatter_R)
-            self.scatter_R.setData(x=[], y=[])
-            self.scatter_R.setVisible(False)
     
     def _create_cursor_segment(self):
-        """Create cursor segment connecting L and R positions."""
+        """
+        Create cursor segment for highlighting current position.
+        EXACTLY as original - creates PlotDataItem with very high Z-value.
+        QGraphicsLineItem is created dynamically later if needed.
+        """
+        # Create PlotDataItem as primary method (exactly as original)
         if self.cursor_segment is None:
             try:
-                seg_pen = pg.mkPen(color=CURSOR_COLOR, width=4)
+                seg_pen = pg.mkPen(color=(255, 200, 0), width=4)
                 self.cursor_segment = pg.PlotDataItem(pen=seg_pen)
+                # add after plotting so it renders on top; force very high Z
                 self.plot_widget.addItem(self.cursor_segment)
                 try:
                     self.cursor_segment.setZValue(10**6)
@@ -152,272 +175,357 @@ class PlotManager:
                 self.cursor_segment.setData(x=[], y=[])
             except Exception:
                 self.cursor_segment = None
+        
+        # Hide scatter markers as original does (segment replaces them visually)
+        try:
+            if self.scatter_L is not None:
+                self.scatter_L.setVisible(False)
+            if self.scatter_R is not None:
+                self.scatter_R.setVisible(False)
+        except Exception:
+            pass
     
-    def update_cursor_position(self, csv_time: float, sums_L: List[np.ndarray], 
-                               sums_R: List[np.ndarray], csv_idx: int):
+    def create_cursor_line(self) -> pg.InfiniteLine:
         """
-        Update cursor position on plot.
+        Create vertical cursor line for time synchronization.
+        
+        Returns:
+            InfiniteLine object representing the cursor
+        """
+        if self.cursor_line is None:
+            self.cursor_line = pg.InfiniteLine(
+                pos=0, 
+                angle=90, 
+                pen=pg.mkPen(CURSOR_COLOR, width=2)
+            )
+            self.plot_widget.addItem(self.cursor_line)
+        
+        return self.cursor_line
+    
+    def update_cursor_position(self, time_seconds: float, 
+                              sums_L: Optional[List[np.ndarray]] = None,
+                              sums_R: Optional[List[np.ndarray]] = None,
+                              csv_idx: Optional[int] = None):
+        """
+        Update cursor line position based on video time.
         
         Args:
-            csv_time: Current time in seconds
-            sums_L: Left side data arrays
-            sums_R: Right side data arrays
-            csv_idx: Current CSV sample index
+            time_seconds: Current video time in seconds
+            sums_L: Left side data (optional, for backward compatibility)
+            sums_R: Right side data (optional, for backward compatibility)
+            csv_idx: CSV index (optional, for backward compatibility)
         """
-        import time
-        
-        # Update or create vertical cursor line
-        if self.cursor_line is None:
-            try:
-                pen_line = pg.mkPen(color=CURSOR_COLOR, width=2)
-            except Exception:
-                pen_line = pg.mkPen('y', width=2)
-            
-            self.cursor_line = pg.InfiniteLine(pos=csv_time, angle=90, pen=pen_line)
-            try:
-                vb = self.plot_widget.getViewBox()
-                vb.addItem(self.cursor_line)
-            except Exception:
-                self.plot_widget.addItem(self.cursor_line)
-            try:
-                self.cursor_line.setZValue(10**6)
-            except Exception:
-                pass
-        else:
-            try:
-                self.cursor_line.setPos(csv_time)
-            except Exception:
-                pass
-        
-        # Calculate Y positions for L and R
-        try:
-            gi_L = max(0, min(int(self.marker_group_index_L), len(sums_L) - 1))
-            arr_L = sums_L[gi_L]
-            y_L = float(arr_L[csv_idx]) if csv_idx < arr_L.shape[0] else float(arr_L[-1])
-        except Exception:
-            y_L = 0.0
-        
-        try:
-            if sums_R and len(sums_R) > 0:
-                gi_R = max(0, min(int(self.marker_group_index_R), len(sums_R) - 1))
-                arr_R = sums_R[gi_R]
-                y_R = float(arr_R[csv_idx]) if csv_idx < arr_R.shape[0] else float(arr_R[-1])
-                y_R_shifted = y_R - float(self.r_offset)
-            else:
-                y_R_shifted = 0.0 - float(self.r_offset)
-        except Exception:
-            y_R_shifted = 0.0 - float(self.r_offset)
-        
-        # Update cursor segment connecting L and R
-        if self.cursor_segment is not None:
-            try:
-                self.cursor_segment.setData(x=[csv_time, csv_time], y=[y_R_shifted, y_L])
-            except Exception:
-                pass
+        if self.cursor_line is not None:
+            self.cursor_line.setPos(time_seconds)
     
     def set_plot_x_range(self, x_min: float, x_max: float):
         """
-        Set X-axis range for main plot.
+        Set the X-axis range of the main plot.
         
         Args:
-            x_min: Minimum X value
-            x_max: Maximum X value
+            x_min: Minimum X value (time in seconds)
+            x_max: Maximum X value (time in seconds)
         """
-        try:
-            self.plot_widget.setXRange(x_min, x_max, padding=0)
-        except Exception:
-            pass
+        self.plot_widget.setXRange(x_min, x_max, padding=0)
     
-    def draw_gaitrite_carpet(self, show_text: bool = True):
+    def update_markers(self, csv_index: int, x_data: np.ndarray, 
+                      sums_L: List[np.ndarray], sums_R: List[np.ndarray]):
         """
-        Draw GaitRite carpet background.
+        Update position markers and connecting segment on the plot.
+        EXACTLY replicates original ephy.py behavior.
         
         Args:
-            show_text: Whether to show placeholder text
+            csv_index: Current index in CSV data
+            x_data: X-axis data array
+            sums_L: Left side data groups
+            sums_R: Right side data groups
         """
-        try:
-            self.gaitrite_plot.clear()
-            carpet_w = float(CARPET_WIDTH_CM)
-            carpet_h = float(CARPET_LENGTH_CM)
-            
-            bg_x = [0, carpet_w, carpet_w, 0, 0]
-            bg_y = [0, 0, carpet_h, carpet_h, 0]
-            
-            self.gaitrite_plot.plot(
-                bg_x, bg_y, 
-                pen=pg.mkPen(CARPET_BORDER_COLOR, width=2), 
-                fillLevel=0,
-                brush=pg.mkBrush(*CARPET_BACKGROUND_COLOR)
-            )
-            
-            if show_text:
-                txt = pg.TextItem(
-                    "GaitRite Carpet\n(placeholder)", 
-                    anchor=(0.5, 0.5), 
-                    color='#7F8C8D'
-                )
-                txt.setPos(carpet_w / 2.0, carpet_h / 2.0)
-                self.gaitrite_plot.addItem(txt)
-            
-            # Set view limits
-            try:
-                self.gaitrite_plot.disableAutoRange()
-                padding_x = max(1.0, carpet_w * 0.05)
-                padding_y = max(1.0, carpet_h * 0.05)
-                self.gaitrite_plot.setXRange(-padding_x, carpet_w + padding_x, padding=0)
-                self.gaitrite_plot.setYRange(-padding_y, carpet_h + padding_y, padding=0)
-            except Exception:
-                pass
-        except Exception:
-            pass
-    
-    def draw_gaitrite_footprints(self, footprints_left_df, footprints_right_df, 
-                                  gaitrite_df=None):
-        """
-        Draw GaitRite footprint contours and trajectory.
+        current_time = time.time()
+        do_update = (current_time - self._last_plot_update) >= self._plot_update_interval
         
-        Args:
-            footprints_left_df: DataFrame with left footprint data
-            footprints_right_df: DataFrame with right footprint data
-            gaitrite_df: DataFrame with gaitrite_test.csv data for trajectory (optional)
-        """
-        self.gaitrite_plot.clear()
-        self.draw_gaitrite_carpet(show_text=False)
-        
-        # Draw footprints
-        for df, color in [(footprints_left_df, FOOTPRINT_LEFT_COLOR), 
-                          (footprints_right_df, FOOTPRINT_RIGHT_COLOR)]:
-            if df is None or df.empty:
-                continue
-            
-            try:
-                # Determine grouping column
-                if 'gait_id' in df.columns:
-                    group_col = 'gait_id'
-                elif 'Gait_Id' in df.columns:
-                    group_col = 'Gait_Id'
-                else:
-                    group_col = None
-                
-                if group_col is not None:
-                    for gv, grp in df.groupby(group_col):
-                        if 'event' in grp.columns:
-                            for ev, g2 in grp.groupby('event'):
-                                self._plot_footprint_group(g2, color)
-                        else:
-                            self._plot_footprint_group(grp, color)
-                else:
-                    self._plot_footprint_group(df, color)
-            except Exception:
-                continue
-        
-        # Draw trajectory from gaitrite_test.csv
-        self._draw_gaitrite_trajectory(gaitrite_df)
-    
-    def _draw_gaitrite_trajectory(self, gaitrite_df):
-        """
-        Draw trajectory line from gaitrite_test.csv data.
-        
-        Args:
-            gaitrite_df: DataFrame with gaitrite_test.csv data
-        """
-        if gaitrite_df is None or gaitrite_df.empty:
+        if not do_update:
             return
         
-        traj_x = []
-        traj_y = []
+        self._last_plot_update = current_time
         
-        try:
-            # Use gaitrite_test.csv to compute trajectory centers
-            from ..constants import GAITRITE_CONVERSION_FACTOR
+        if csv_index >= len(x_data):
+            return
             
-            # Compute centers using midpoints from expected columns
+        x_val = x_data[csv_index]
+        
+        # Update left marker
+        yL = 0.0
+        if self.marker_group_index_L < len(sums_L):
+            arrL = sums_L[self.marker_group_index_L]
+            if csv_index < len(arrL):
+                yL = float(arrL[csv_index])
+                if self.scatter_L is not None:
+                    self.scatter_L.setData([x_val], [yL])
+        
+        # Update right marker
+        yR_shifted = 0.0 - self.r_offset
+        if self.marker_group_index_R < len(sums_R):
+            arrR = sums_R[self.marker_group_index_R]
+            if csv_index < len(arrR):
+                yR = float(arrR[csv_index])
+                yR_shifted = yR - self.r_offset
+                if self.scatter_R is not None:
+                    self.scatter_R.setData([x_val], [yR_shifted])
+        
+        # Draw vertical line that moves in X axis with FIXED height
+        # Line extends from a fixed bottom to fixed top (constant length)
+        if self.cursor_segment is not None:
+            try:
+                # Calculate center point between L and R
+                y_center = (yL + yR_shifted) / 2.0
+                # Draw line with fixed height centered on data
+                half_height = self.fixed_line_height / 2.0
+                y_bottom = y_center - half_height
+                y_top = y_center + half_height
+                # Line moves only in X, height stays constant
+                self.cursor_segment.setData(x=[x_val, x_val], y=[y_bottom, y_top])
+            except Exception:
+                pass
+    
+    
+    def draw_gaitrite_footprints(self, footprints_left: Optional[pd.DataFrame],
+                                 footprints_right: Optional[pd.DataFrame],
+                                 gaitrite_df: Optional[pd.DataFrame] = None):
+        """
+        Draw GaitRite footprints and trajectory on the plot.
+        EXACTLY replicates original ephy.py behavior.
+        
+        Args:
+            footprints_left: Left footprint data
+            footprints_right: Right footprint data
+            gaitrite_df: Main GaitRite data for trajectory (optional)
+        """
+        self.gaitrite_plot.clear()
+        self.gaitrite_footprint_items = []
+        
+        # Draw carpet background first
+        self._draw_carpet_background()
+        
+        # Draw trajectory if GaitRite data is available
+        if gaitrite_df is not None:
+            self._draw_gaitrite_trajectory(gaitrite_df)
+        
+        # Draw footprints
+        if footprints_left is not None:
+            self._plot_footprint_group(footprints_left, FOOTPRINT_LEFT_COLOR, 'Left')
+        
+        if footprints_right is not None:
+            self._plot_footprint_group(footprints_right, FOOTPRINT_RIGHT_COLOR, 'Right')
+        
+        # Auto-adjust view range based on all drawn data (exactly as original)
+        self._auto_adjust_gaitrite_view()
+    
+    def _draw_carpet_background(self):
+        """
+        Draw the GaitRite carpet background rectangle.
+        EXACTLY as original ephy.py - from (0,0) to (CARPET_WIDTH, CARPET_LENGTH).
+        """
+        # Draw carpet outline with coordinates from 0 to dimensions (NOT centered)
+        bg_x = [0, CARPET_WIDTH_CM, CARPET_WIDTH_CM, 0, 0]
+        bg_y = [0, 0, CARPET_LENGTH_CM, CARPET_LENGTH_CM, 0]
+        
+        self.gaitrite_plot.plot(
+            bg_x, bg_y,
+            pen=pg.mkPen(CARPET_BORDER_COLOR, width=2),
+            fillLevel=0,
+            brush=pg.mkBrush(*CARPET_BACKGROUND_COLOR)
+        )
+    
+    def _draw_gaitrite_trajectory(self, gaitrite_df: pd.DataFrame):
+        """
+        Draw the trajectory path from GaitRite data.
+        EXACTLY replicates original ephy.py behavior.
+        
+        Args:
+            gaitrite_df: DataFrame with columns Ybottom, Ytop, Xback, Xfront
+        """
+        try:
+            traj_x = []
+            traj_y = []
+            
+            # Check for required columns (exactly as in original)
             if all(c in gaitrite_df.columns for c in ('Ybottom', 'Ytop', 'Xback', 'Xfront')):
-                ctr_x = (((gaitrite_df['Ybottom'].astype(float) + 
-                          gaitrite_df['Ytop'].astype(float)) / 2.0) * 
-                         GAITRITE_CONVERSION_FACTOR).values
-                ctr_y = (((gaitrite_df['Xback'].astype(float) + 
-                          gaitrite_df['Xfront'].astype(float)) / 2.0) * 
-                         GAITRITE_CONVERSION_FACTOR).values
+                # Compute centers using midpoints (EXACT formula from original)
+                ctr_x = (((gaitrite_df['Ybottom'].astype(float) + gaitrite_df['Ytop'].astype(float)) / 2.0) 
+                         * GAITRITE_CONVERSION_FACTOR).values
+                ctr_y = (((gaitrite_df['Xback'].astype(float) + gaitrite_df['Xfront'].astype(float)) / 2.0) 
+                         * GAITRITE_CONVERSION_FACTOR).values
                 traj_x = list(ctr_x)
                 traj_y = list(ctr_y)
             else:
-                # Try alternative column names if present
-                import pandas as pd
-                alt_x = next((c for c in gaitrite_df.columns if c.lower().startswith('y')), None)
-                alt_y = next((c for c in gaitrite_df.columns if c.lower().startswith('x')), None)
-                if alt_x is not None and alt_y is not None:
-                    try:
-                        traj_x = list(pd.to_numeric(
-                            gaitrite_df[alt_x], errors='coerce'
-                        ).dropna().astype(float).values)
-                        traj_y = list(pd.to_numeric(
-                            gaitrite_df[alt_y], errors='coerce'
-                        ).dropna().astype(float).values)
-                    except Exception:
-                        traj_x = []
-                        traj_y = []
-        except Exception:
-            pass
-        
-        # Draw trajectory if we have valid data
-        if len(traj_x) > 1:
-            try:
-                # Draw trajectory line in black
-                self.gaitrite_plot.plot(
-                    traj_x, traj_y, 
-                    pen=pg.mkPen('black', width=2)
+                print(f"[PlotManager] Missing required columns for trajectory")
+                return
+            
+            # Draw trajectory if we have at least 2 points (exactly as in original)
+            if len(traj_x) > 1:
+                # Draw BLACK line (NOT blue) - exactly as original
+                self.gaitrite_trajectory_item = self.gaitrite_plot.plot(
+                    traj_x, traj_y,
+                    pen=pg.mkPen('black', width=2)  # BLACK, not blue!
                 )
-                
-                # Mark start point (green) and end point (red)
+                # Set Z-value high so trajectory is above footprints
                 try:
-                    start_point = pg.ScatterPlotItem(
-                        size=8, 
-                        brush=pg.mkBrush(0, 200, 0),  # Green
-                        pen=pg.mkPen('k')
-                    )
-                    end_point = pg.ScatterPlotItem(
-                        size=8, 
-                        brush=pg.mkBrush(200, 0, 0),  # Red
-                        pen=pg.mkPen('k')
-                    )
-                    start_point.setData(x=[traj_x[0]], y=[traj_y[0]])
-                    end_point.setData(x=[traj_x[-1]], y=[traj_y[-1]])
-                    self.gaitrite_plot.addItem(start_point)
-                    self.gaitrite_plot.addItem(end_point)
+                    self.gaitrite_trajectory_item.setZValue(1000)
                 except Exception:
                     pass
-            except Exception:
-                pass
+                
+                # Mark start (green) and end (red) points - BIGGER SIZE
+                try:
+                    # Start point - GREEN (BIGGER)
+                    start_marker = pg.ScatterPlotItem(
+                        size=12,  # Increased from 8 to 12
+                        brush=pg.mkBrush(0, 200, 0),  # Green
+                        pen=pg.mkPen('k', width=2)
+                    )
+                    start_marker.setData(x=[traj_x[0]], y=[traj_y[0]])
+                    # Set Z-value even higher for markers
+                    try:
+                        start_marker.setZValue(2000)
+                    except Exception:
+                        pass
+                    self.gaitrite_plot.addItem(start_marker)
+                    
+                    # End point - RED (BIGGER)
+                    end_marker = pg.ScatterPlotItem(
+                        size=12,  # Increased from 8 to 12
+                        brush=pg.mkBrush(200, 0, 0),  # Red
+                        pen=pg.mkPen('k', width=2)
+                    )
+                    end_marker.setData(x=[traj_x[-1]], y=[traj_y[-1]])
+                    # Set Z-value even higher for markers
+                    try:
+                        end_marker.setZValue(2000)
+                    except Exception:
+                        pass
+                    self.gaitrite_plot.addItem(end_marker)
+                except Exception:
+                    pass
+                
+                print(f"[PlotManager] Drew trajectory with {len(traj_x)} points", flush=True)
+            
+        except Exception as e:
+            print(f"[PlotManager] Error drawing trajectory: {e}", flush=True)
     
-    def _plot_footprint_group(self, df, color):
+    def _plot_footprint_group(self, footprints: pd.DataFrame, color: str, side: str):
         """
-        Plot a single footprint group.
+        Plot footprint contours (EXACTLY as original ephy.py).
         
         Args:
-            df: DataFrame with footprint coordinates
-            color: Color for the footprint
+            footprints: DataFrame with columns: x_cm, y_cm, gait_id, event, sample_idx
+            color: Color for the footprints
+            side: 'Left' or 'Right' for labeling
         """
         try:
-            if 'sample_idx' in df.columns:
-                df_sorted = df.sort_values('sample_idx')
-            else:
-                df_sorted = df
+            if footprints is None or footprints.empty:
+                return
             
-            if 'x_cm' in df_sorted.columns and 'y_cm' in df_sorted.columns:
-                self.gaitrite_plot.plot(
-                    df_sorted['x_cm'].values, 
-                    df_sorted['y_cm'].values,
-                    pen=pg.mkPen(color=color, width=2)
-                )
-        except Exception:
-            pass
+            drew_count = 0
+            
+            # Check if we have gait_id column for grouping
+            if 'gait_id' in footprints.columns:
+                group_col = 'gait_id'
+            elif 'Gait_Id' in footprints.columns:
+                group_col = 'Gait_Id'
+            else:
+                group_col = None
+            
+            if group_col is not None:
+                # Draw polygons grouped by gait_id and event
+                for gait_val, gait_group in footprints.groupby(group_col):
+                    # Check if we have event column
+                    if 'event' in gait_group.columns:
+                        event_groups = gait_group.groupby('event')
+                    else:
+                        event_groups = [(None, gait_group)]
+                    
+                    for event_val, event_group in event_groups:
+                        # Sort by sample_idx if available
+                        if 'sample_idx' in event_group.columns:
+                            grp_sorted = event_group.sort_values('sample_idx')
+                        else:
+                            grp_sorted = event_group
+                        
+                        # Draw contour if we have x_cm and y_cm
+                        if 'x_cm' in grp_sorted.columns and 'y_cm' in grp_sorted.columns:
+                            x_vals = grp_sorted['x_cm'].values
+                            y_vals = grp_sorted['y_cm'].values
+                            
+                            # Draw the contour line (exactly as original)
+                            footprint_item = self.gaitrite_plot.plot(
+                                x_vals, y_vals,
+                                pen=pg.mkPen(color=color, width=2)
+                            )
+                            self.gaitrite_footprint_items.append(footprint_item)
+                            drew_count += 1
+            else:
+                # No grouping column - draw all points as single contour
+                if 'x_cm' in footprints.columns and 'y_cm' in footprints.columns:
+                    x_vals = footprints['x_cm'].values
+                    y_vals = footprints['y_cm'].values
+                    
+                    footprint_item = self.gaitrite_plot.plot(
+                        x_vals, y_vals,
+                        pen=pg.mkPen(color=color, width=2)
+                    )
+                    self.gaitrite_footprint_items.append(footprint_item)
+                    drew_count = 1
+            
+            if drew_count > 0:
+                print(f"[PlotManager] Drew {drew_count} {side} footprint contours", flush=True)
+            
+        except Exception as e:
+            print(f"[PlotManager] Error plotting {side} footprints: {e}", flush=True)
     
-    def clear_plots(self):
-        """Clear all plot items."""
-        self.plot_widget.clear()
-        self.gaitrite_plot.clear()
-        self.plot_items_L = []
-        self.plot_items_R = []
-        self.cursor_line = None
-        self.cursor_segment = None
+    def _auto_adjust_gaitrite_view(self):
+        """
+        Auto-adjust GaitRite plot view to fit all data.
+        EXACTLY replicates original ephy.py behavior.
+        """
+        try:
+            self.gaitrite_plot.disableAutoRange()
+            
+            # Collect all x,y data from all items
+            all_x = []
+            all_y = []
+            
+            for item in self.gaitrite_plot.listDataItems():
+                try:
+                    d = item.getData()
+                    if d is None:
+                        continue
+                    xs, ys = d
+                    all_x.extend(list(xs))
+                    all_y.extend(list(ys))
+                except Exception:
+                    continue
+            
+            # Set range based on actual data or fallback to carpet size
+            if len(all_x) > 0 and len(all_y) > 0:
+                minx, maxx = min(all_x), max(all_x)
+                miny, maxy = min(all_y), max(all_y)
+                padding_x = max(1.0, (maxx - minx) * 0.10)
+                padding_y = max(1.0, (maxy - miny) * 0.08)
+                self.gaitrite_plot.setXRange(minx - padding_x, maxx + padding_x, padding=0)
+                self.gaitrite_plot.setYRange(miny - padding_y, maxy + padding_y, padding=0)
+            else:
+                # Fallback to carpet dimensions
+                padding_x = CARPET_WIDTH_CM * 0.10
+                padding_y = CARPET_LENGTH_CM * 0.08
+                self.gaitrite_plot.setXRange(-padding_x, CARPET_WIDTH_CM + padding_x, padding=0)
+                self.gaitrite_plot.setYRange(-padding_y, CARPET_LENGTH_CM + padding_y, padding=0)
+                
+        except Exception as e:
+            print(f"[PlotManager] Error adjusting view: {e}", flush=True)
+    
+    def set_marker_group_L(self, group_index: int):
+        """Set the group index for left marker."""
+        self.marker_group_index_L = group_index
+    
+    def set_marker_group_R(self, group_index: int):
+        """Set the group index for right marker."""
+        self.marker_group_index_R = group_index

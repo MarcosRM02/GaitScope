@@ -608,12 +608,21 @@ class VideoPlayer(QtWidgets.QMainWindow):
         csv_time = float(csv_idx) / float(self.data_manager.csv_sampling_rate) \
             if self.data_manager.csv_sampling_rate > 0 else float(csv_idx)
         
-        # Update cursor position
+        # Update cursor position (vertical yellow line)
         self.plot_manager.update_cursor_position(
             csv_time,
             self.data_manager.sums_L,
             self.data_manager.sums_R,
             csv_idx
+        )
+        
+        # Update markers and connecting segment (CRITICAL - was missing!)
+        x_data = self.data_manager.get_time_axis()
+        self.plot_manager.update_markers(
+            csv_idx,
+            x_data,
+            self.data_manager.sums_L,
+            self.data_manager.sums_R
         )
         
         # Update label
