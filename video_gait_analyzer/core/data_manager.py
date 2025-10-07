@@ -86,15 +86,31 @@ class DataManager:
         self.csv_len = max(len_L, len_R, 1)
         
         # Process left side data
-        self.sums_L = self._compute_group_sums(dfL_sel, self.csv_len)
-        
+        # If we have a full 32-column layout, use the custom grouping (forefoot/midfoot/hindfoot)
+        from ..constants import (
+            LEFT_FOREFOOT_INDICES,
+            LEFT_MIDFOOT_INDICES,
+            LEFT_HINDFOOT_INDICES,
+            RIGHT_FOREFOOT_INDICES,
+            RIGHT_MIDFOOT_INDICES,
+            RIGHT_HINDFOOT_INDICES,
+        )
+
+        if dfL_sel.shape[1] >= 32:
+            self.sums_L = self._compute_group_sums_from_indices(dfL_sel, [LEFT_FOREFOOT_INDICES, LEFT_MIDFOOT_INDICES, LEFT_HINDFOOT_INDICES], self.csv_len)
+        else:
+            self.sums_L = self._compute_group_sums(dfL_sel, self.csv_len)
+         
         # Process right side data
         if not dfR_sel.empty:
-            self.sums_R = self._compute_group_sums(dfR_sel, self.csv_len)
+            if dfR_sel.shape[1] >= 32:
+                self.sums_R = self._compute_group_sums_from_indices(dfR_sel, [RIGHT_FOREFOOT_INDICES, RIGHT_MIDFOOT_INDICES, RIGHT_HINDFOOT_INDICES], self.csv_len)
+            else:
+                self.sums_R = self._compute_group_sums(dfR_sel, self.csv_len)
         else:
             # Create empty arrays for right side if no data
             self.sums_R = [
-                np.zeros(self.csv_len, dtype=float) 
+                np.zeros(self.csv_len, dtype=float)
                 for _ in range(DEFAULT_NUMBER_OF_GROUPS)
             ]
         
@@ -136,6 +152,38 @@ class DataManager:
             
             sums.append(y_sum)
         
+        return sums
+    
+    def _compute_group_sums_from_indices(self, df: pd.DataFrame, groups: List[list], target_length: int) -> List[np.ndarray]:
+        """
+        Compute summed values for custom groups defined by explicit column indices.
+
+        Args:
+            df: DataFrame containing sensor data
+            groups: List of lists, each inner list contains 0-based column indices for that group
+            target_length: Target length for output arrays (for padding)
+
+        Returns:
+            List of numpy arrays, one per group
+        """
+        sums = []
+        n_cols = df.shape[1]
+        for grp in groups:
+            # Filter indices that are in range
+            valid_idx = [i for i in grp if 0 <= i < n_cols]
+            if not valid_idx:
+                y_sum = np.zeros(target_length, dtype=float)
+            else:
+                try:
+                    arr = df.iloc[:, valid_idx].fillna(0).astype(float).to_numpy()
+                    # Pad if necessary
+                    if arr.shape[0] < target_length:
+                        pad = np.zeros((target_length - arr.shape[0], arr.shape[1]), dtype=float)
+                        arr = np.vstack([arr, pad])
+                    y_sum = arr.sum(axis=1)
+                except Exception:
+                    y_sum = np.zeros(target_length, dtype=float)
+            sums.append(y_sum)
         return sums
     
     def load_gaitrite_data(self, base_directory: str) -> bool:

@@ -66,3 +66,15 @@ DEFAULT_VIDEO_BACKGROUND = "black"
 # Carpet background for GaitRite plot
 CARPET_BACKGROUND_COLOR = (240, 240, 240, 100)  # Light gray with transparency
 CARPET_BORDER_COLOR = 'gray'
+
+# Sensor grouping indices for 32-column layout (0-based column indices)
+# English names: forefoot, midfoot, hindfoot
+LEFT_FOREFOOT_INDICES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 17, 18, 19, 20, 21, 22, 23]
+LEFT_MIDFOOT_INDICES = [11, 12, 14, 15]
+LEFT_HINDFOOT_INDICES = [13, 24, 25, 26, 27, 28, 29, 30, 31]
+
+RIGHT_FOREFOOT_INDICES = [4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 24, 25, 26, 27, 28, 29, 30, 31]
+RIGHT_MIDFOOT_INDICES = [0, 1, 3, 6]
+RIGHT_HINDFOOT_INDICES = [2, 16, 17, 18, 19, 20, 21, 22, 23]
+SENSOR_GROUP_LABELS = ['Forefoot', 'Midfoot', 'Hindfoot']
+

@@ -29,6 +29,7 @@ from ..constants import (
     CARPET_BORDER_COLOR,
     PLOT_UPDATE_INTERVAL,
     GAITRITE_CONVERSION_FACTOR,
+    SENSOR_GROUP_LABELS,
 )
 
 
@@ -96,14 +97,24 @@ class PlotManager:
         self.plot_items_L = []
         self.plot_items_R = []
         
+        # Determine legend labels: use SENSOR_GROUP_LABELS when we have exactly 3 groups
+        try:
+            if len(sums_L) == 3:
+                group_labels = SENSOR_GROUP_LABELS
+            else:
+                group_labels = [f'Group {i+1}' for i in range(len(sums_L))]
+        except Exception:
+            group_labels = [f'Group {i+1}' for i in range(len(sums_L))]
+
         # Plot each group
         for group_idx in range(len(sums_L)):
             # Left side
             y_L = sums_L[group_idx]
             pen_L = pg.mkPen(PLOT_COLORS[group_idx % len(PLOT_COLORS)], width=2)
+            label_L = f'L {group_labels[group_idx]}'
             plot_item_L = self.plot_widget.plot(
                 x_data, y_L, pen=pen_L, 
-                name=f'L Group {group_idx+1}'
+                name=label_L
             )
             # Set low Z-value for data lines so cursor stays on top
             try:
@@ -120,9 +131,10 @@ class PlotManager:
                     width=2, 
                     style=QtCore.Qt.DashLine
                 )
+                label_R = f'R {group_labels[group_idx]}'
                 plot_item_R = self.plot_widget.plot(
                     x_data, y_R, pen=pen_R,
-                    name=f'R Group {group_idx+1}'
+                    name=label_R
                 )
                 # Set low Z-value for data lines so cursor stays on top
                 try:
