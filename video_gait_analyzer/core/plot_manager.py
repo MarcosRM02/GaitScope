@@ -136,6 +136,9 @@ class PlotManager:
         
         # Create cursor segment
         self._create_cursor_segment()
+        
+        # Set Y range with zoom for better visibility
+        self._set_optimal_y_range(sums_L, sums_R)
     
     def _create_scatter_items(self):
         """Create scatter plot items for position markers."""
@@ -273,16 +276,14 @@ class PlotManager:
                     self.scatter_R.setData([x_val], [yR_shifted])
         
         # Draw vertical line that moves in X axis with FIXED height
-        # Line extends from a fixed bottom to fixed top (constant length)
+        # Line has fixed Y coordinates covering the full data range
         if self.cursor_segment is not None:
             try:
-                # Calculate center point between L and R
-                y_center = (yL + yR_shifted) / 2.0
-                # Draw line with fixed height centered on data
-                half_height = self.fixed_line_height / 2.0
-                y_bottom = y_center - half_height
-                y_top = y_center + half_height
-                # Line moves only in X, height stays constant
+                # Use fixed large Y range to cover all possible data values
+                # This range stays constant regardless of zoom or data values
+                y_bottom = -50000.0
+                y_top = 50000.0
+                # Line moves only in X direction, Y coordinates stay constant
                 self.cursor_segment.setData(x=[x_val, x_val], y=[y_bottom, y_top])
             except Exception:
                 pass
@@ -529,3 +530,36 @@ class PlotManager:
     def set_marker_group_R(self, group_index: int):
         """Set the group index for right marker."""
         self.marker_group_index_R = group_index
+    
+    def _set_optimal_y_range(self, sums_L: List[np.ndarray], sums_R: List[np.ndarray]):
+        """
+        Set optimal Y range for the plot with zoom for better visibility.
+        
+        Args:
+            sums_L: Left side data groups
+            sums_R: Right side data groups
+        """
+        try:
+            # Collect all Y values to determine the range
+            all_y_values = []
+            
+            # Add all L values
+            for arr in sums_L:
+                all_y_values.extend(arr.flatten())
+            
+            # Add all R values (with offset)
+            for arr in sums_R:
+                all_y_values.extend((arr - self.r_offset).flatten())
+            
+            if len(all_y_values) > 0:
+                y_min = np.min(all_y_values)
+                y_max = np.max(all_y_values)
+                
+                # Add 8% padding for better visibility with more zoom
+                y_range = y_max - y_min
+                padding = y_range * 0.08
+                
+                self.plot_widget.setYRange(y_min - padding, y_max + padding, padding=0)
+                print(f"[PlotManager] Set Y range: {y_min - padding:.1f} to {y_max + padding:.1f}", flush=True)
+        except Exception as e:
+            print(f"[PlotManager] Error setting Y range: {e}", flush=True)

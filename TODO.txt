@@ -1,0 +1,4 @@
+TODO ajustar las graficas para que quepan las de mas de 3 segundos
+TODO ajustar la linea de las graficas para que funcione como en la version individual
+TODO ordenar participantes e intentos
+TODO Agrupacion de los sensores en funcion de la v2
