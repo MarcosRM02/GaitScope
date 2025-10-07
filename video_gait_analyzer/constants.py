@@ -18,7 +18,7 @@ DEFAULT_MAX_COLUMNS = 32
 
 # Plot visualization constants
 DEFAULT_PLOT_WINDOW_SECONDS = 5.0
-DEFAULT_R_OFFSET = 30000.0  # Offset for right-side data visualization
+DEFAULT_R_OFFSET = 80000.0  # Offset for right-side data visualization
 PLOT_UPDATE_INTERVAL = 1.0 / 20.0  # 20 Hz update rate for plot markers
 
 # Video playback constants

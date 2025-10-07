@@ -291,10 +291,22 @@ class PlotManager:
         # Line has fixed Y coordinates covering the full data range
         if self.cursor_segment is not None:
             try:
-                # Use fixed large Y range to cover all possible data values
-                # This range stays constant regardless of zoom or data values
-                y_bottom = -50000.0
-                y_top = 50000.0
+                # Prefer the current visible Y range so the cursor matches the plotted viewport
+                try:
+                    vb = self.plot_widget.getViewBox()
+                    vr = vb.viewRange()  # returns [xRange, yRange]
+                    y_min, y_max = float(vr[1][0]), float(vr[1][1])
+                except Exception:
+                    y_min, y_max = None, None
+
+                if y_min is None or y_max is None or y_min == y_max:
+                    # Fallback: compute a span that covers left (near 0) and right (shifted by -r_offset)
+                    half_h = self.fixed_line_height / 2.0
+                    y_top = half_h
+                    y_bottom = -self.r_offset - half_h
+                else:
+                    y_bottom, y_top = y_min, y_max
+
                 # Line moves only in X direction, Y coordinates stay constant
                 self.cursor_segment.setData(x=[x_val, x_val], y=[y_bottom, y_top])
             except Exception:

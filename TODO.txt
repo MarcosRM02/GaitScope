@@ -1,4 +1,2 @@
-TODO ajustar las graficas para que quepan las de mas de 3 segundos
-
 TODO Colocar las leyendas de las graficas.
 
