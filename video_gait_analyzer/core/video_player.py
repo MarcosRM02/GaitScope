@@ -556,12 +556,11 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.data_manager.sums_R
         )
         
-        # Set initial X range
+        # Set initial X range to full CSV duration so all data is visible
         total_seconds = float(self.data_manager.csv_len) / float(
             self.data_manager.csv_sampling_rate
         )
-        win = min(DEFAULT_PLOT_WINDOW_SECONDS, total_seconds)
-        self.plot_manager.set_plot_x_range(0, win)
+        self.plot_manager.set_plot_x_range(0, total_seconds)
         
         # Update cursor
         self._update_csv_cursor_from_video()
