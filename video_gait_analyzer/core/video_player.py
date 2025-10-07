@@ -7,6 +7,7 @@ video playback, data visualization, and user interface.
 
 import os
 import sys
+import re
 from typing import Optional
 from PyQt5 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
@@ -656,7 +657,18 @@ class VideoPlayer(QtWidgets.QMainWindow):
             subjects = [d for d in os.listdir(data_dir) 
                        if os.path.isdir(os.path.join(data_dir, d)) 
                        and d.upper().startswith('P')]
-            subjects.sort()
+
+            # Sort participants numerically by the number after 'P' (P1, P2, P10)
+            def _subj_key(name: str):
+                m = re.match(r'^P0*([0-9]+)', name.upper())
+                if m:
+                    try:
+                        return (int(m.group(1)), name.upper())
+                    except Exception:
+                        pass
+                return (10**9, name.upper())
+
+            subjects.sort(key=_subj_key)
             
             self.combo_subject.addItem('Select subject...', userData=None)
             for s in subjects:
@@ -729,7 +741,26 @@ class VideoPlayer(QtWidgets.QMainWindow):
             
             subs = [d for d in os.listdir(group_path) 
                    if os.path.isdir(os.path.join(group_path, d))]
-            subs.sort()
+
+            # Sort sessions numerically when possible (e.g., '1', '2', '10')
+            def _sess_key(name: str):
+                # exact numeric name
+                m = re.match(r'^0*([0-9]+)$', name)
+                if m:
+                    try:
+                        return (int(m.group(1)), name)
+                    except Exception:
+                        pass
+                # fallback: first number found inside name
+                m2 = re.search(r'(\d+)', name)
+                if m2:
+                    try:
+                        return (int(m2.group(1)), name)
+                    except Exception:
+                        pass
+                return (10**9, name)
+
+            subs.sort(key=_sess_key)
             
             self.combo_session.addItem('Select session...', userData=None)
             
