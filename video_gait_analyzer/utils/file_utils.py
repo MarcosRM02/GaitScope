@@ -31,23 +31,26 @@ def find_video_file(directory: str) -> Optional[str]:
         for filename in sorted(os.listdir(directory)):
             file_path = os.path.join(directory, filename)
             if os.path.isfile(file_path):
-                if any(filename.lower().endswith(ext) for ext in VIDEO_EXTENSIONS):
+                # Only accept video files that include 'anonym' in the filename
+                fname_lower = filename.lower()
+                if any(fname_lower.endswith(ext) for ext in VIDEO_EXTENSIONS) and 'anonym' in fname_lower:
                     return file_path
     except Exception:
         pass
-    
+
     # If not found, search recursively
     try:
         for dirpath, dirnames, filenames in os.walk(directory):
             # Skip excluded directories
             dirnames[:] = [d for d in dirnames if d.lower() not in EXCLUDED_DIRECTORIES]
-            
+
             for filename in filenames:
-                if any(filename.lower().endswith(ext) for ext in VIDEO_EXTENSIONS):
+                fname_lower = filename.lower()
+                if any(fname_lower.endswith(ext) for ext in VIDEO_EXTENSIONS) and 'anonym' in fname_lower:
                     return os.path.join(dirpath, filename)
     except Exception:
         pass
-    
+
     return None
 
 
@@ -123,9 +126,10 @@ def discover_datasets(base_directory: str, max_depth: int = 3) -> List[Tuple[str
                 continue
             
             # Check for video or CSV presence
-            has_video = any(f.lower().endswith(tuple(VIDEO_EXTENSIONS)) for f in filenames)
+            # Only count video files that include 'anonym' in the filename
+            has_video = any((f.lower().endswith(tuple(VIDEO_EXTENSIONS)) and 'anonym' in f.lower()) for f in filenames)
             has_csv = any(f.lower() == 'l.csv' or f.lower().endswith('l.csv') for f in filenames)
-            
+
             if has_video or has_csv:
                 abs_path = os.path.abspath(dirpath)
                 if abs_path not in seen:
