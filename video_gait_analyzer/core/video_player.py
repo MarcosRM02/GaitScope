@@ -69,21 +69,44 @@ class VideoPlayer(QtWidgets.QMainWindow):
         """Build the user interface."""
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
-        
-        # Main horizontal layout: video | plots
+
+        # Main horizontal layout: left (video + plots stacked) and right (gaitrite full height)
         main_layout = QtWidgets.QHBoxLayout(central)
-        
-        # Left side: video and controls
-        left_layout = self._build_video_section()
-        main_layout.addLayout(left_layout, 2)
-        
-        # Right side: plots
-        right_layout = self._build_plot_section()
-        main_layout.addLayout(right_layout, 3)
-        
+
+        # Left column: video (top) and CSV plots (bottom)
+        left_column = QtWidgets.QVBoxLayout()
+        video_layout = self._build_video_section()
+        left_column.addLayout(video_layout, 3)
+
+        plot_layout = self._build_plot_section()
+        left_column.addLayout(plot_layout, 2)
+
+        main_layout.addLayout(left_column, 3)
+
+        # Right column: gaitrite plot occupying full height as a margin
+        self.gaitrite_plot = pg.PlotWidget(title='GaitRite - Footprints and Trajectory')
+        self._configure_gaitrite_plot()
+
+        # Make gaitrite a narrow sidebar so main (video+plots) fills the rest
+        try:
+            self.gaitrite_plot.setMinimumWidth(260)
+            self.gaitrite_plot.setMaximumWidth(360)
+            self.gaitrite_plot.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Expanding)
+        except Exception:
+            pass
+
+        main_layout.addWidget(self.gaitrite_plot, 1)
+
+        # Ensure left column expands to fill remaining horizontal space
+        try:
+            main_layout.setStretch(0, 10)
+            main_layout.setStretch(1, 1)
+        except Exception:
+            pass
+
         # Setup keyboard shortcuts
         self._setup_shortcuts()
-        
+
         print("[VideoPlayer] UI constructed", flush=True)
     
     def _build_video_section(self) -> QtWidgets.QVBoxLayout:
@@ -249,32 +272,30 @@ class VideoPlayer(QtWidgets.QMainWindow):
     
     def _build_plot_section(self) -> QtWidgets.QVBoxLayout:
         """
-        Build the plot visualization section.
-        
+        Build the plot visualization section (CSV plots only).
         Returns:
-            Layout containing plots
+            Layout containing the CSV plot widget and index label
         """
         layout = QtWidgets.QVBoxLayout()
-        
-        # GaitRite plot
-        self.gaitrite_plot = pg.PlotWidget(title='GaitRite - Footprints and Trajectory')
-        self._configure_gaitrite_plot()
-        layout.addWidget(self.gaitrite_plot, 2)
-        
+
         # CSV index label
         self.csv_index_label = QtWidgets.QLabel('CSV: - / -')
         layout.addWidget(self.csv_index_label, 0)
-        
-        # CSV data plot
+
+        # CSV data plot (occupies full width under the video)
         self.time_axis = TimeAxis(orientation='bottom')
         self.plot_widget = pg.PlotWidget(
             axisItems={'bottom': self.time_axis}, 
             title='Pressure Sensor Data (4 groups)'
         )
-        self.plot_widget.showGrid(x=True, y=True)
-        self.plot_widget.addLegend(offset=(10, 10))
+        # Ensure plot widget has a clean default appearance; specific visuals handled in PlotManager
+        try:
+            self.plot_widget.showGrid(x=False, y=False)
+            self.plot_widget.addLegend(offset=(10, 10))
+        except Exception:
+            pass
         layout.addWidget(self.plot_widget, 1)
-        
+
         return layout
     
     def _configure_gaitrite_plot(self):
@@ -298,6 +319,48 @@ class VideoPlayer(QtWidgets.QMainWindow):
             except Exception:
                 pass
             plot_item.showGrid(True, True, alpha=0.3)
+
+            # Reduce margins so the carpet drawing is closer to the Y axis
+            try:
+                left_axis = plot_item.getAxis('left')
+                bottom_axis = plot_item.getAxis('bottom')
+
+                try:
+                    # Reduce reserved width for left axis (was 40)
+                    left_axis.setWidth(18)
+                except Exception:
+                    pass
+
+                try:
+                    # Reduce reserved height for bottom axis (was 28)
+                    bottom_axis.setHeight(18)
+                except Exception:
+                    pass
+
+                try:
+                    # Reduce tick label offsets to bring ticks closer to the plot
+                    left_axis.setStyle(tickTextOffset=2)
+                    bottom_axis.setStyle(tickTextOffset=2)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            try:
+                # Remove extra widget margins and reduce spacing inside plot so drawing sits closer to axes
+                self.gaitrite_plot.setContentsMargins(0, 0, 0, 0)
+                try:
+                    # Also try to reduce any internal ViewBox padding by setting a tighter range later (view ranges use padding=0)
+                    vb = plot_item.getViewBox()
+                    try:
+                        # Some versions expose an attribute to control padding; disable unnecessary padding if available
+                        vb.setPadding(0)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
         except Exception:
             pass
     
@@ -423,36 +486,46 @@ class VideoPlayer(QtWidgets.QMainWindow):
             h0, w0 = frame_bgr.shape[:2]
             target_w = max(1, self.video_label.width())
             target_h = max(1, self.video_label.height())
-            
-            # Calculate scale to maintain aspect ratio
-            scale = min(target_w / float(w0), target_h / float(h0))
+
+            # Calculate scale to FILL the label (cover) instead of fitting inside.
+            # This removes black margins by scaling so the image covers the area,
+            # then center-cropping the excess.
+            scale = max(target_w / float(w0), target_h / float(h0))
             new_w = max(1, int(round(w0 * scale)))
             new_h = max(1, int(round(h0 * scale)))
-            
+
             if new_w != w0 or new_h != h0:
-                resized = cv2.resize(frame_bgr, (new_w, new_h), 
-                                    interpolation=cv2.INTER_LINEAR)
+                resized = cv2.resize(frame_bgr, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
             else:
                 resized = frame_bgr
-            
+
             frame_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
             h, w = frame_rgb.shape[:2]
             bytes_per_line = 3 * w
-            image = QtGui.QImage(frame_rgb.data, w, h, bytes_per_line, 
-                                QtGui.QImage.Format_RGB888)
+            image = QtGui.QImage(frame_rgb.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888)
             pix = QtGui.QPixmap.fromImage(image)
+
+            # If the scaled pixmap is larger than the label, crop the center region
+            if pix.width() > target_w or pix.height() > target_h:
+                x = max(0, (pix.width() - target_w) // 2)
+                y = max(0, (pix.height() - target_h) // 2)
+                pix = pix.copy(x, y, target_w, target_h)
+            else:
+                # As a fallback, scale up smoothly (should be rare)
+                pix = pix.scaled(target_w, target_h, QtCore.Qt.KeepAspectRatioByExpanding, QtCore.Qt.SmoothTransformation)
+
             self.video_label.setPixmap(pix)
         except Exception:
-            # Fallback
+            # Fallback: keep aspect ratio but expand to fill
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
             h, w = frame_rgb.shape[:2]
             bytes_per_line = 3 * w
-            image = QtGui.QImage(frame_rgb.data, w, h, bytes_per_line, 
-                                QtGui.QImage.Format_RGB888)
+            image = QtGui.QImage(frame_rgb.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888)
             pix = QtGui.QPixmap.fromImage(image).scaled(
-                self.video_label.width(), 
-                self.video_label.height(), 
-                QtCore.Qt.KeepAspectRatio
+                self.video_label.width(),
+                self.video_label.height(),
+                QtCore.Qt.KeepAspectRatioByExpanding,
+                QtCore.Qt.SmoothTransformation
             )
             self.video_label.setPixmap(pix)
     
@@ -525,43 +598,48 @@ class VideoPlayer(QtWidgets.QMainWindow):
     def load_csvs(self):
         """Load and plot CSV data files."""
         print("[VideoPlayer] Loading CSV data", flush=True)
-        
+        # DEBUG: show current csv_paths
+        print(f"[VideoPlayer] csv_paths: {getattr(self, 'csv_paths', None)}", flush=True)
+
         # Find L.csv
         csv_L = None
         for p in self.csv_paths:
-            if os.path.exists(p):
+            if p and os.path.exists(p):
                 csv_L = p
                 break
-        
+
         if not csv_L:
             self.plot_widget.clear()
-            self.plot_widget.plot([0], [0], pen=pg.mkPen('k'))
+            try:
+                self.plot_widget.plot([0], [0], pen=pg.mkPen('k'))
+            except Exception:
+                pass
             print("[VideoPlayer] No CSV found", flush=True)
             return
-        
+
         # Try to find R.csv in same directory
         csv_dir = os.path.dirname(csv_L)
         csv_R = os.path.join(csv_dir, 'R.csv')
-        
+
         # Load data
         if not self.data_manager.load_csv_data(csv_L, csv_R if os.path.exists(csv_R) else None):
             QtWidgets.QMessageBox.warning(self, 'Warning', 'Error loading CSV data')
             return
-        
+
         # Create plots
         x_data = self.data_manager.get_time_axis()
         self.plot_manager.create_csv_plots(
-            x_data, 
-            self.data_manager.sums_L, 
+            x_data,
+            self.data_manager.sums_L,
             self.data_manager.sums_R
         )
-        
+
         # Set initial X range to full CSV duration so all data is visible
         total_seconds = float(self.data_manager.csv_len) / float(
             self.data_manager.csv_sampling_rate
-        )
+        ) if self.data_manager.csv_sampling_rate > 0 else float(self.data_manager.csv_len)
         self.plot_manager.set_plot_x_range(0, total_seconds)
-        
+
         # Update cursor
         self._update_csv_cursor_from_video()
         print("[VideoPlayer] CSV data loaded", flush=True)
@@ -728,123 +806,102 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.combo_session.setEnabled(False)
             return
         self.populate_sessions(group_path)
-    
+
     def populate_sessions(self, group_path: str):
-        """Populate session combo box for selected category."""
+        """Populate session combo box for selected group."""
         try:
             self.combo_session.clear()
             self.combo_session.setEnabled(False)
-            
+
             if not group_path or not os.path.isdir(group_path):
                 return
-            
-            subs = [d for d in os.listdir(group_path) 
-                   if os.path.isdir(os.path.join(group_path, d))]
 
-            # Sort sessions numerically when possible (e.g., '1', '2', '10')
+            # Sessions are stored as subdirectories under the group folder
+            sessions = [d for d in os.listdir(group_path)
+                        if os.path.isdir(os.path.join(group_path, d))]
+
+            # Numeric sort where possible (e.g., 1,2,10)
             def _sess_key(name: str):
-                # exact numeric name
-                m = re.match(r'^0*([0-9]+)$', name)
+                m = re.match(r'^0*([0-9]+)', name)
                 if m:
                     try:
                         return (int(m.group(1)), name)
                     except Exception:
                         pass
-                # fallback: first number found inside name
-                m2 = re.search(r'(\d+)', name)
-                if m2:
-                    try:
-                        return (int(m2.group(1)), name)
-                    except Exception:
-                        pass
                 return (10**9, name)
 
-            subs.sort(key=_sess_key)
-            
+            sessions.sort(key=_sess_key)
+
             self.combo_session.addItem('Select session...', userData=None)
-            
-            if subs:
-                for s in subs:
-                    self.combo_session.addItem(s, userData=os.path.join(group_path, s))
-            else:
-                self.combo_session.addItem(os.path.basename(group_path), userData=group_path)
-            
+            for s in sessions:
+                self.combo_session.addItem(s, userData=os.path.join(group_path, s))
+
             self.combo_session.setCurrentIndex(0)
             self.combo_session.setEnabled(True)
+
+            # Connect session change handler (safe to call multiple times)
+            try:
+                self.combo_session.currentIndexChanged.connect(self.on_session_changed)
+            except Exception:
+                pass
         except Exception:
             pass
-    
-    def on_load_dataset_clicked(self):
-        """Handle Load Dataset button click."""
-        try:
-            subj_idx = self.combo_subject.currentIndex()
-            if subj_idx < 0:
-                QtWidgets.QMessageBox.information(self, 'Info', 
-                                                 'Please select a subject first')
-                return
-            
-            sess_idx = self.combo_session.currentIndex()
-            sess_path = self.combo_session.itemData(sess_idx) if sess_idx >= 0 else None
-            
-            grp_idx = self.combo_group.currentIndex()
-            grp_path = self.combo_group.itemData(grp_idx) if grp_idx >= 0 else None
-            
-            subj_path = self.combo_subject.itemData(subj_idx)
-            
-            # Determine target path
-            target = sess_path or grp_path or subj_path
-            
-            if not target or not os.path.isdir(target):
-                QtWidgets.QMessageBox.warning(self, 'Warning', 
-                                             f'Invalid path: {target}')
-                return
-            
-            # Load dataset
-            self.configure_dataset_from_path(target)
-            
-            # Reset playback
-            self.stop()
-            
-            self.statusBar().showMessage(f'Loaded dataset: {target}', 5000)
-        except Exception as e:
-            print(f"[VideoPlayer] Error loading dataset: {e}", flush=True)
-    
-    def configure_dataset_from_path(self, path: str):
-        """
-        Configure and load dataset from a directory.
-        
-        Args:
-            path: Path to dataset directory
-        """
-        print(f"[VideoPlayer] Configuring dataset from: {path}", flush=True)
-        
-        # Find video file
-        video_found = find_video_file(path)
-        if video_found:
-            self.embedded_video_path = video_found
-            self.load_video(video_found)
-        else:
-            print(f"[VideoPlayer] No video found in {path}", flush=True)
-            self.statusBar().showMessage('No video found in selected dataset', 5000)
-        
-        # Find CSV files
-        csv_L = find_csv_file(path, 'L.csv')
-        if csv_L:
-            self.csv_paths = [csv_L]
-        else:
+
+    def on_session_changed(self, index: int):
+        """Handle session selection change and locate CSV/video paths."""
+        if index < 0:
+            return
+        session_path = self.combo_session.itemData(index)
+        if not session_path:
             self.csv_paths = []
-        
-        # Load data
-        if self.csv_paths:
-            self.load_csvs()
-        
+            self.btn_load_dataset.setEnabled(False)
+            return
+
+        # Try to find L.csv (case-insensitive) inside session folder
+        csv_L = None
+        try:
+            for fname in ('L.csv', 'l.csv'):
+                p = os.path.join(session_path, fname)
+                if os.path.exists(p):
+                    csv_L = p
+                    break
+
+            if not csv_L:
+                for f in os.listdir(session_path):
+                    if f.lower().startswith('l') and f.lower().endswith('.csv'):
+                        csv_L = os.path.join(session_path, f)
+                        break
+        except Exception:
+            csv_L = None
+
+        self.csv_paths = [csv_L] if csv_L else []
+
+        # Try to find an anonymized video inside the session folder
+        try:
+            video = find_video_file(session_path)
+            if video:
+                self.embedded_video_path = video
+        except Exception:
+            pass
+
+        print(f"[VideoPlayer] on_session_changed: session_path={session_path}, csv_paths={self.csv_paths}, video={getattr(self, 'embedded_video_path', None)}", flush=True)
+        self.btn_load_dataset.setEnabled(True)
+
+    def on_load_dataset_clicked(self):
+        """Handle Load Dataset button click: load CSVs, gaitrite data and embedded video if present."""
+        print("[VideoPlayer] on_load_dataset_clicked called", flush=True)
+        print(f"[VideoPlayer] current csv_paths={getattr(self, 'csv_paths', None)}", flush=True)
+
+        if not getattr(self, 'csv_paths', None):
+            QtWidgets.QMessageBox.warning(self, 'Warning', 'No CSV selected')
+            return
+
+        # Load CSVs and plots
+        self.load_csvs()
+
+        # Load gaitrite footprints/carpet
         self.load_gaitrite_data()
-    
-    # ==================== Event Handlers ====================
-    
-    def closeEvent(self, event):
-        """Handle window close event."""
-        print("[VideoPlayer] Closing", flush=True)
-        self.stop()
-        self.video_controller.release()
-        event.accept()
+
+        # Load embedded video if available
+        if getattr(self, 'embedded_video_path', None):
+            self.load_video(self.embedded_video_path)

@@ -358,7 +358,7 @@ class PlotManager:
         """
         Draw GaitRite footprints and trajectory on the plot.
         EXACTLY replicates original ephy.py behavior.
-        
+
         Args:
             footprints_left: Left footprint data
             footprints_right: Right footprint data
@@ -375,14 +375,43 @@ class PlotManager:
             self._draw_gaitrite_trajectory(gaitrite_df)
         
         # Draw footprints
+        drew_any = False
         if footprints_left is not None:
             self._plot_footprint_group(footprints_left, FOOTPRINT_LEFT_COLOR, 'Left')
+            drew_any = True
         
         if footprints_right is not None:
             self._plot_footprint_group(footprints_right, FOOTPRINT_RIGHT_COLOR, 'Right')
+            drew_any = True
         
-        # Auto-adjust view range based on all drawn data (exactly as original)
-        self._auto_adjust_gaitrite_view()
+        # If we drew any footprints or trajectory, lock the view to the carpet
+        # so the drawing appears exactly in carpet coordinates and scale.
+        try:
+            vb = self.gaitrite_plot.getViewBox()
+            # Lock aspect ratio 1:1 so X/Y use same scale (shape preserved)
+            try:
+                vb.setAspectLocked(True)
+            except Exception:
+                pass
+
+            # Set the view to exactly the carpet dimensions (no extra padding)
+            try:
+                self.gaitrite_plot.setXRange(0, CARPET_WIDTH_CM, padding=0)
+                self.gaitrite_plot.setYRange(0, CARPET_LENGTH_CM, padding=0)
+            except Exception:
+                pass
+
+            # Disable autorange so interactive resizes won't distort the mapping
+            try:
+                vb.disableAutoRange()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # If nothing was drawn (no footprints/trajectory), fallback to auto-adjust
+        if not drew_any:
+            self._auto_adjust_gaitrite_view()
     
     def _draw_carpet_background(self):
         """
@@ -618,9 +647,8 @@ class PlotManager:
                 y_min = np.min(all_y_values)
                 y_max = np.max(all_y_values)
                 
-                # Add 8% padding for better visibility with more zoom
                 y_range = y_max - y_min
-                padding = y_range * 0.08
+                padding = y_range * 0.4
                 
                 self.plot_widget.setYRange(y_min - padding, y_max + padding, padding=0)
                 print(f"[PlotManager] Set Y range: {y_min - padding:.1f} to {y_max + padding:.1f}", flush=True)
