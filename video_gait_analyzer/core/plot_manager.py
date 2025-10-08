@@ -94,6 +94,44 @@ class PlotManager:
             self.r_offset = r_offset
         
         self.plot_widget.clear()
+        # Set white background for plot widget and disable interactive features and grid
+        try:
+            self.plot_widget.setBackground('w')
+            # Remove grid if present
+            try:
+                self.plot_widget.showGrid(x=False, y=False)
+            except Exception:
+                pass
+
+            # Disable mouse interactions (pan/zoom)
+            try:
+                vb = self.plot_widget.getViewBox()
+                vb.setMouseEnabled(x=False, y=False)
+            except Exception:
+                pass
+
+            # Disable context menu to prevent plot-level actions
+            try:
+                self.plot_widget.setMenuEnabled(False)
+            except Exception:
+                pass
+
+            # Hide Y axis scale and labels
+            try:
+                axis_left = self.plot_widget.getAxis('left')
+                if axis_left is not None and hasattr(axis_left, 'setStyle'):
+                    axis_left.setStyle(showValues=False)
+                else:
+                    # Fallback: hide text pen to make labels invisible
+                    try:
+                        axis_left.setTextPen(pg.mkPen(None))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+        
         self.plot_items_L = []
         self.plot_items_R = []
         
@@ -179,7 +217,8 @@ class PlotManager:
         # Create PlotDataItem as primary method (exactly as original)
         if self.cursor_segment is None:
             try:
-                seg_pen = pg.mkPen(color=(255, 200, 0), width=4)
+                # Thinner cursor segment for less visual weight
+                seg_pen = pg.mkPen(color=(255, 200, 0), width=2)
                 self.cursor_segment = pg.PlotDataItem(pen=seg_pen)
                 # add after plotting so it renders on top; force very high Z
                 self.plot_widget.addItem(self.cursor_segment)
@@ -211,7 +250,7 @@ class PlotManager:
             self.cursor_line = pg.InfiniteLine(
                 pos=0, 
                 angle=90, 
-                pen=pg.mkPen(CURSOR_COLOR, width=2)
+                pen=pg.mkPen(CURSOR_COLOR, width=1)
             )
             self.plot_widget.addItem(self.cursor_line)
         
@@ -491,7 +530,7 @@ class PlotManager:
                 # No grouping column - draw all points as single contour
                 if 'x_cm' in footprints.columns and 'y_cm' in footprints.columns:
                     x_vals = footprints['x_cm'].values
-                    y_vals = footprints['y_cm'].values
+                    y_vals = footprints['y_cm'].values;
                     
                     footprint_item = self.gaitrite_plot.plot(
                         x_vals, y_vals,

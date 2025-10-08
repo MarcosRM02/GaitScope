@@ -35,7 +35,8 @@ DRAG_SEEK_INTERVAL = 1.0 / 10.0  # Maximum 10 seeks per second during dragging
 GAITRITE_CONVERSION_FACTOR = 1.27  # Conversion factor for GaitRite units to cm
 
 # Plot colors for different data groups
-PLOT_COLORS = ['r', 'g', 'b', 'm']  # Red, Green, Blue, Magenta
+# Use a pleasant palette suited for white backgrounds (hex colors)
+PLOT_COLORS = ['#e74c3c', '#2980b9', '#27ae60', '#8e44ad']  # Red, Blue, Green, Purple
 
 # Cursor and marker colors
 CURSOR_COLOR = (255, 200, 0)  # Yellow/Gold
