@@ -122,6 +122,12 @@ class VideoPlayer(QtWidgets.QMainWindow):
         self.video_label = QtWidgets.QLabel()
         self.video_label.setStyleSheet(f"background-color: {DEFAULT_VIDEO_BACKGROUND};")
         self.video_label.setAlignment(QtCore.Qt.AlignCenter)
+        # Make the label expand/shrink with the window and avoid automatic pixmap stretching
+        try:
+            self.video_label.setScaledContents(False)
+            self.video_label.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        except Exception:
+            pass
         layout.addWidget(self.video_label, 8)
         
         # Control buttons
@@ -487,47 +493,31 @@ class VideoPlayer(QtWidgets.QMainWindow):
             target_w = max(1, self.video_label.width())
             target_h = max(1, self.video_label.height())
 
-            # Calculate scale to FILL the label (cover) instead of fitting inside.
-            # This removes black margins by scaling so the image covers the area,
-            # then center-cropping the excess.
-            scale = max(target_w / float(w0), target_h / float(h0))
-            new_w = max(1, int(round(w0 * scale)))
-            new_h = max(1, int(round(h0 * scale)))
-
-            if new_w != w0 or new_h != h0:
-                resized = cv2.resize(frame_bgr, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-            else:
-                resized = frame_bgr
-
-            frame_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-            h, w = frame_rgb.shape[:2]
-            bytes_per_line = 3 * w
-            image = QtGui.QImage(frame_rgb.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888)
+            # Convert BGR -> RGB and create QImage
+            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            bytes_per_line = 3 * w0
+            image = QtGui.QImage(frame_rgb.data, w0, h0, bytes_per_line, QtGui.QImage.Format_RGB888)
             pix = QtGui.QPixmap.fromImage(image)
 
-            # If the scaled pixmap is larger than the label, crop the center region
-            if pix.width() > target_w or pix.height() > target_h:
-                x = max(0, (pix.width() - target_w) // 2)
-                y = max(0, (pix.height() - target_h) // 2)
-                pix = pix.copy(x, y, target_w, target_h)
-            else:
-                # As a fallback, scale up smoothly (should be rare)
-                pix = pix.scaled(target_w, target_h, QtCore.Qt.KeepAspectRatioByExpanding, QtCore.Qt.SmoothTransformation)
-
+            # Scale to fit inside label while preserving aspect ratio (no cropping)
+            pix = pix.scaled(target_w, target_h, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
             self.video_label.setPixmap(pix)
         except Exception:
-            # Fallback: keep aspect ratio but expand to fill
-            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-            h, w = frame_rgb.shape[:2]
-            bytes_per_line = 3 * w
-            image = QtGui.QImage(frame_rgb.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888)
-            pix = QtGui.QPixmap.fromImage(image).scaled(
-                self.video_label.width(),
-                self.video_label.height(),
-                QtCore.Qt.KeepAspectRatioByExpanding,
-                QtCore.Qt.SmoothTransformation
-            )
-            self.video_label.setPixmap(pix)
+            try:
+                # Fallback: basic conversion and keep aspect ratio
+                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                h, w = frame_rgb.shape[:2]
+                bytes_per_line = 3 * w
+                image = QtGui.QImage(frame_rgb.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888)
+                pix = QtGui.QPixmap.fromImage(image).scaled(
+                    max(1, self.video_label.width()),
+                    max(1, self.video_label.height()),
+                    QtCore.Qt.KeepAspectRatio,
+                    QtCore.Qt.SmoothTransformation
+                )
+                self.video_label.setPixmap(pix)
+            except Exception:
+                pass
     
     def update_time_label(self):
         """Update time and frame labels."""
@@ -677,15 +667,26 @@ class VideoPlayer(QtWidgets.QMainWindow):
         """Update CSV plot cursor based on current video frame."""
         if self.data_manager.sums_L is None:
             return
-        
+
+        # Translate current video frame into a CSV index, then clamp to valid range.
         csv_idx = self.data_manager.video_frame_to_csv_index(
             self.video_controller.current_frame,
             self.video_controller.fps
         )
-        
+
+        # Ensure csv_idx is within [0, csv_len-1] to avoid out-of-range times
+        if hasattr(self.data_manager, 'csv_len') and self.data_manager.csv_len > 0:
+            csv_idx = max(0, min(int(csv_idx), int(self.data_manager.csv_len) - 1))
+        else:
+            try:
+                csv_idx = int(csv_idx)
+            except Exception:
+                csv_idx = 0
+
+        # Compute CSV time from clamped index
         csv_time = float(csv_idx) / float(self.data_manager.csv_sampling_rate) \
-            if self.data_manager.csv_sampling_rate > 0 else float(csv_idx)
-        
+            if getattr(self.data_manager, 'csv_sampling_rate', 0) > 0 else float(csv_idx)
+
         # Update cursor position (vertical yellow line)
         self.plot_manager.update_cursor_position(
             csv_time,
@@ -693,8 +694,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.data_manager.sums_R,
             csv_idx
         )
-        
-        # Update markers and connecting segment (CRITICAL - was missing!)
+
+        # Update markers and connecting segment
         x_data = self.data_manager.get_time_axis()
         self.plot_manager.update_markers(
             csv_idx,
@@ -702,9 +703,9 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.data_manager.sums_L,
             self.data_manager.sums_R
         )
-        
+
         # Update label
-        total_idx = self.data_manager.csv_len - 1 if self.data_manager.csv_len > 0 else 0
+        total_idx = self.data_manager.csv_len - 1 if getattr(self.data_manager, 'csv_len', 0) > 0 else 0
         time_str = format_time_mmss(csv_time)
         self.csv_index_label.setText(
             f'CSV idx: {csv_idx} / {total_idx}   t={time_str}'

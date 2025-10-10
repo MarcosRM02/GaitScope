@@ -33,7 +33,7 @@ class TimeAxis(pg.AxisItem):
 
     def tickStrings(self, values, scale, spacing):
         """
-        Convert tick values to MM:SS formatted strings.
+        Convert tick values to MM:SS.mmm formatted strings (milliseconds precision).
         
         Args:
             values: List of tick positions in seconds
@@ -50,9 +50,12 @@ class TimeAxis(pg.AxisItem):
                     out.append('')
                     continue
                 secs = float(v)
-                mins = int(secs // 60)
-                s = int(secs % 60)
-                out.append(f"{mins:02d}:{s:02d}")
+                # Round to nearest millisecond
+                total_ms = int(round(secs * 1000.0))
+                mins = total_ms // 60000
+                s = (total_ms // 1000) % 60
+                ms = total_ms % 1000
+                out.append(f"{mins:02d}:{s:02d}.{ms:03d}")
             except Exception:
                 out.append('')
         return out

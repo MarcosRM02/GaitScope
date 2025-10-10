@@ -93,7 +93,45 @@ class PlotManager:
         if r_offset is not None:
             self.r_offset = r_offset
         
+        # Clear the plot widget and drop references to any old plot items so
+        # they will be recreated and re-added to the new plot scene. This
+        # prevents markers/cursor from being 'missing' after a reload because
+        # the old Scatter/Line items were removed from the scene but the
+        # python references remained.
+        try:
+            # Remove known items if they exist on the widget
+            try:
+                if self.scatter_L is not None:
+                    try:
+                        self.plot_widget.removeItem(self.scatter_L)
+                    except Exception:
+                        pass
+                if self.scatter_R is not None:
+                    try:
+                        self.plot_widget.removeItem(self.scatter_R)
+                    except Exception:
+                        pass
+                if self.cursor_segment is not None:
+                    try:
+                        self.plot_widget.removeItem(self.cursor_segment)
+                    except Exception:
+                        pass
+                if self.cursor_line is not None:
+                    try:
+                        self.plot_widget.removeItem(self.cursor_line)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        finally:
+            # Reset local references so new items will be created and added
+            self.scatter_L = None
+            self.scatter_R = None
+            self.cursor_segment = None
+            self.cursor_line = None
+
         self.plot_widget.clear()
+        
         # Set white background for plot widget and disable interactive features and grid
         try:
             self.plot_widget.setBackground('w')
