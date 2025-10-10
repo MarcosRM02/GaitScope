@@ -4,54 +4,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import numpy as np
 import cv2
 from animator import Animator
-
-
-class Worker(QtCore.QObject):
-    tick = QtCore.Signal()
-    fpsReport = QtCore.Signal(float)
-
-    def __init__(self, fps=64):
-        super().__init__()
-        self._running = True
-        self._playing = False
-        self.fps = fps
-
-    @QtCore.Slot()
-    def run(self):
-        # fixed-period loop to maintain precise frame rate and correct drift
-        period = 1.0 / float(self.fps)
-        next_time = time.perf_counter()
-        last_report = next_time
-        frames = 0
-        while self._running:
-            now = time.perf_counter()
-            if self._playing:
-                # emit tick exactly on schedule
-                self.tick.emit()
-                frames += 1
-            # schedule next wake
-            next_time += period
-            # compute remaining time until next_time
-            sleep_time = next_time - time.perf_counter()
-            if sleep_time > 0:
-                # sleep most of the interval
-                time.sleep(sleep_time)
-            else:
-                # we're behind schedule; catch up by resetting next_time
-                next_time = time.perf_counter()
-            # report fps every 1 second
-            if (time.perf_counter() - last_report) >= 1.0:
-                elapsed = time.perf_counter() - last_report
-                report_fps = frames / elapsed if elapsed > 0 else 0.0
-                self.fpsReport.emit(report_fps)
-                last_report = time.perf_counter()
-                frames = 0
-
-    def stop(self):
-        self._running = False
-
-    def play(self, p: bool):
-        self._playing = p
+from worker import Worker
+from prerenderer import PreRenderer
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -62,6 +16,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.image_label = QtWidgets.QLabel()
         self.image_label.setAlignment(QtCore.Qt.AlignCenter)
         self.setCentralWidget(self.image_label)
+        # Fix the image area to the final composition size so the window doesn't
+        # re-layout while the first frames/warm-up are rendered.
+        try:
+            w = int(self.animator.params.get('wFinal', 175))
+            h = int(self.animator.params.get('hFinal', 520))
+            margin = int(self.animator.params.get('margin', 50))
+            legendW = int(self.animator.params.get('legendWidth', 80))
+            final_w = w * 2 + margin * 3 + legendW
+            final_h = h + margin * 2
+            # fix the QLabel pixel area to avoid size changes
+            self.image_label.setFixedSize(final_w, final_h)
+            self.image_label.setScaledContents(False)
+            # prevent the main window from shrinking smaller than content
+            self.setMinimumSize(self.sizeHint())
+        except Exception:
+            pass
         # controls
         w = QtWidgets.QWidget()
         hbox = QtWidgets.QHBoxLayout()
@@ -74,6 +44,16 @@ class MainWindow(QtWidgets.QMainWindow):
         hbox.addWidget(self.reset_btn)
         hbox.addWidget(self.prev_btn)
         hbox.addWidget(self.next_btn)
+        # playback speed control
+        self.speed_label = QtWidgets.QLabel(f"{int(self.animator.params.get('fps',64))} FPS")
+        self.speed_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.speed_slider.setMinimum(1)
+        self.speed_slider.setMaximum(120)
+        self.speed_slider.setValue(int(self.animator.params.get('fps',64)))
+        self.speed_slider.setFixedWidth(140)
+        self.speed_slider.valueChanged.connect(self.set_playback_speed)
+        hbox.addWidget(self.speed_label)
+        hbox.addWidget(self.speed_slider)
         hbox.addWidget(self.frame_label)
         w.setLayout(hbox)
         toolbar = QtWidgets.QToolBar()
@@ -138,6 +118,16 @@ class MainWindow(QtWidgets.QMainWindow):
         playing = not self.worker._playing
         self.worker.play(playing)
         self.play_btn.setText("Pause" if playing else "Play")
+
+    def set_playback_speed(self, v: int):
+        # Called in GUI thread; update worker.fps (safe simple assignment) and animator params
+        try:
+            val = int(v)
+        except Exception:
+            return
+        self.worker.fps = val
+        self.animator.params['fps'] = val
+        self.speed_label.setText(f"{val} FPS")
 
     def on_reset(self):
         self.worker.play(False)
