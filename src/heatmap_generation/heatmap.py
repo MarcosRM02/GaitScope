@@ -109,4 +109,3 @@ def draw_indices(img: np.ndarray, coords: List[Tuple[float, float]], offset=(0,0
         # white filled circle with thin black border for visibility
         cv2.circle(img, (x_off, y_off), 6, (255, 255, 255), -1)
         cv2.circle(img, (x_off, y_off), 6, (0, 0, 0), 1)
-

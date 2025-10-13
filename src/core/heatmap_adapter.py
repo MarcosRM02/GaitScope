@@ -31,22 +31,25 @@ from typing import List, Tuple, Optional
 import numpy as np
 from PyQt5 import QtCore
 
-# Import Heatmap_Project modules
-# Add Heatmap_Project to path if not already there
-heatmap_project_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    'Heatmap_Project'
-)
-if heatmap_project_path not in sys.path:
-    sys.path.insert(0, heatmap_project_path)
-
 try:
-    from animator import Animator
-    from prerenderer import PreRenderer
-except ImportError as e:
-    print(f"[HeatmapAdapter] Warning: Could not import Heatmap_Project modules: {e}", flush=True)
-    Animator = None
-    PreRenderer = None
+    # Prefer bundled heatmap_project package inside video_gait_analyzer
+    from src.heatmap_generation.animator import Animator
+    from src.heatmap_generation.prerenderer import PreRenderer
+except Exception:
+    try:
+        # Fallback to repository-level Heatmap_Project (legacy path)
+        heatmap_project_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            'Heatmap_Project'
+        )
+        if heatmap_project_path not in sys.path:
+            sys.path.insert(0, heatmap_project_path)
+        from animator import Animator
+        from prerenderer import PreRenderer
+    except Exception as e:
+        print(f"[HeatmapAdapter] Warning: Could not import Heatmap_Project modules: {e}", flush=True)
+        Animator = None
+        PreRenderer = None
 
 
 class HeatmapWorker(QtCore.QObject):

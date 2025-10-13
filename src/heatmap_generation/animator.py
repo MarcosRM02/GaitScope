@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from collections import deque
 from typing import List, Tuple
-from heatmap import precompute_kernels, render_heatmap_from_flatZ, compute_cop, create_colorbar, draw_indices
+from .heatmap import precompute_kernels, render_heatmap_from_flatZ, compute_cop, create_colorbar, draw_indices
 
 
 class Animator:
@@ -13,7 +13,7 @@ class Animator:
         self.left_seq = []
         self.right_seq = []
         self.frame_idx = 0
-        self.trail_len = params["trailLength"]
+        self.trail_len = params.get("trailLength", 10)
         self.left_trail = deque(maxlen=self.trail_len)
         self.right_trail = deque(maxlen=self.trail_len)
         # precompute kernels
@@ -64,8 +64,8 @@ class Animator:
         # compose final image
         w = self.params["wFinal"]
         h = self.params["hFinal"]
-        margin = self.params["margin"]
-        legendW = self.params["legendWidth"]
+        margin = self.params.get("margin", 50)
+        legendW = self.params.get("legendWidth", 80)
         # create colorbar (may return height != h)
         cb = create_colorbar(h, legendW)
         cb_h, cb_w = cb.shape[:2]
@@ -134,3 +134,13 @@ class Animator:
 
     def set_frame(self, idx: int):
         self.frame_idx = max(0, min(idx, max(0, self.n_frames()-1)))
+
+
+def render_frame_at(self, idx: int) -> np.ndarray:
+    # Render a specific frame without modifying internal frame_idx
+    old_idx = self.frame_idx
+    try:
+        self.frame_idx = max(0, min(int(idx), max(0, self.n_frames()-1)))
+        return self.get_frame()
+    finally:
+        self.frame_idx = old_idx

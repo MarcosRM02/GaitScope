@@ -393,14 +393,14 @@ class DataManager:
     
     def _load_global_sensor_coordinates(self):
         """
-        Load global sensor coordinate files from video_gait_analyzer/in/ directory.
+        Load global sensor coordinate files from the package's `in/` directory.
         
         These coordinates are the same for all participants, so we load them once
         at initialization to improve performance.
         """
         import json
         
-        # Get the path to the 'in' directory inside video_gait_analyzer package
+        # Get the path to the 'in' directory inside the package root
         current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         in_dir = os.path.join(current_dir, 'in')
         
