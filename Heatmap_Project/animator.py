@@ -118,20 +118,8 @@ class Animator:
             cv2.circle(out, (left_cop[0]+lx, left_cop[1]+ly), 8, pink, -1)
         if right_cop != (0, 0):
             cv2.circle(out, (right_cop[0]+rx, right_cop[1]+ly), 8, pink, -1)
-        # draw frame index
-        txt = f"{self.frame_idx+1}/{self.n_frames()}"
-        cv2.putText(out, txt, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2)
-        # draw time counter (mm:ss.s) based on fps and frame index
-        fps = float(self.params.get("fps", 64))
-        seconds = self.frame_idx / fps
-        mins = int(seconds // 60)
-        secs = seconds - mins*60
-        time_str = f"{mins:02d}:{secs:04.1f}"
-        # draw with thin black shadow then white text for readability
-        tw_x = final_w - 160
-        tw_y = 20
-        cv2.putText(out, time_str, (tw_x+1, tw_y+1), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 2, cv2.LINE_AA)
-        cv2.putText(out, time_str, (tw_x, tw_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 1, cv2.LINE_AA)
+
+        # Frame index and time counter removed per user request
         return out
 
     def step(self, delta=1):

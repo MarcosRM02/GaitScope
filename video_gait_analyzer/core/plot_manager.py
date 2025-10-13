@@ -41,16 +41,19 @@ class PlotManager:
     CSV data visualization and GaitRite footprint displays.
     """
     
-    def __init__(self, plot_widget: pg.PlotWidget, gaitrite_plot: pg.PlotWidget):
+    def __init__(self, plot_widget: pg.PlotWidget, gaitrite_plot: pg.PlotWidget, legend_container: Optional[QtWidgets.QWidget] = None):
         """
         Initialize the plot manager.
         
         Args:
             plot_widget: Main plot widget for CSV data
             gaitrite_plot: Plot widget for GaitRite visualization
+            legend_container: Optional QWidget where a horizontal legend will be created above the plot
         """
         self.plot_widget = plot_widget
         self.gaitrite_plot = gaitrite_plot
+        # Optional container widget (provided by VideoPlayer) where a horizontal legend will be placed
+        self.legend_container: Optional[QtWidgets.QWidget] = legend_container
         
         # Plot items
         self.plot_items_L: List = []
@@ -145,6 +148,24 @@ class PlotManager:
             try:
                 vb = self.plot_widget.getViewBox()
                 vb.setMouseEnabled(x=False, y=False)
+                # Try to disable automatic range/autorange behaviour on the ViewBox
+                try:
+                    if hasattr(vb, 'setAutoRange'):
+                        vb.setAutoRange(False)
+                    elif hasattr(vb, 'enableAutoRange'):
+                        vb.enableAutoRange(False)
+                except Exception:
+                    pass
+                # Hide any auto-range / toolbox buttons exposed by PlotWidget
+                try:
+                    self.plot_widget.hideButtons()
+                except Exception:
+                    pass
+                # Prevent any mouse interaction on the plot widget (completely read-only)
+                try:
+                    self.plot_widget.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -188,10 +209,7 @@ class PlotManager:
             y_L = sums_L[group_idx]
             pen_L = pg.mkPen(PLOT_COLORS[group_idx % len(PLOT_COLORS)], width=2)
             label_L = f'L {group_labels[group_idx]}'
-            plot_item_L = self.plot_widget.plot(
-                x_data, y_L, pen=pen_L, 
-                name=label_L
-            )
+            plot_item_L = self.plot_widget.plot(x_data, y_L, pen=pen_L)
             # Set low Z-value for data lines so cursor stays on top
             try:
                 plot_item_L.setZValue(0)
@@ -208,10 +226,7 @@ class PlotManager:
                     style=QtCore.Qt.DashLine
                 )
                 label_R = f'R {group_labels[group_idx]}'
-                plot_item_R = self.plot_widget.plot(
-                    x_data, y_R, pen=pen_R,
-                    name=label_R
-                )
+                plot_item_R = self.plot_widget.plot(x_data, y_R, pen=pen_R)
                 # Set low Z-value for data lines so cursor stays on top
                 try:
                     plot_item_R.setZValue(0)
@@ -227,6 +242,110 @@ class PlotManager:
         
         # Set Y range with zoom for better visibility
         self._set_optimal_y_range(sums_L, sums_R)
+        
+        try:
+            if self.legend_container is not None:
+                # Build label/color lists: first all L then all R
+                labels = []
+                colors = []
+                for idx in range(len(self.plot_items_L)):
+                    labels.append(f'L {group_labels[idx]}' if idx < len(group_labels) else f'L Group {idx+1}')
+                    colors.append(pg.mkColor(PLOT_COLORS[idx % len(PLOT_COLORS)]))
+                for idx in range(len(self.plot_items_R)):
+                    labels.append(f'R {group_labels[idx]}' if idx < len(group_labels) else f'R Group {idx+1}')
+                    colors.append(pg.mkColor(PLOT_COLORS[idx % len(PLOT_COLORS)]))
+                self.populate_horizontal_legend(labels, colors)
+            else:
+                # Fallback: do nothing (no legend container provided)
+                pass
+        except Exception:
+            pass
+
+    def populate_horizontal_legend(self, labels: List[str], colors: List[QtGui.QColor]):
+        """Populate the provided legend_container with a horizontal legend.
+
+        Each entry shows a small color sample and a label. Existing contents are cleared.
+        """
+        if self.legend_container is None:
+            return
+
+        try:
+            layout = self.legend_container.layout()
+            if layout is None:
+                layout = QtWidgets.QHBoxLayout(self.legend_container)
+                self.legend_container.setLayout(layout)
+            # Clear existing widgets
+            while layout.count() > 0:
+                item = layout.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
+
+            # Add entries horizontally
+            for idx, lbl in enumerate(labels):
+                color = colors[idx] if idx < len(colors) else pg.mkColor('k')
+                # sample swatch
+                sample = QtWidgets.QLabel()
+                sample.setFixedSize(18, 12)
+                # Draw a pixmap for the swatch so we can show stripes for R entries
+                try:
+                    pix_w, pix_h = 18, 12
+                    pix = QtGui.QPixmap(pix_w, pix_h)
+                    # transparent background
+                    pix.fill(QtGui.QColor(255, 255, 255))
+                    painter = QtGui.QPainter(pix)
+                    try:
+                        r, g, b, a = color.getRgb()
+                    except Exception:
+                        # fallback if color is not QColor
+                        try:
+                            r, g, b = color
+                        except Exception:
+                            r, g, b = (0, 0, 0)
+
+                    brush_color = QtGui.QColor(r, g, b)
+                    # If this index corresponds to a right-side item (after left items), draw diagonal stripes
+                    try:
+                        is_right = (idx >= len(self.plot_items_L))
+                    except Exception:
+                        is_right = False
+
+                    if is_right:
+                        # fill with white then draw diagonal lines in color
+                        painter.fillRect(0, 0, pix_w, pix_h, QtGui.QColor(255, 255, 255))
+                        pen = QtGui.QPen(brush_color)
+                        pen.setWidth(2)
+                        painter.setPen(pen)
+                        # draw diagonal stripes from bottom-left to top-right
+                        step = 4
+                        for x in range(-pix_h, pix_w, step):
+                            painter.drawLine(x, pix_h, x + pix_h, 0)
+                    else:
+                        painter.fillRect(0, 0, pix_w, pix_h, brush_color)
+
+                    painter.end()
+                    sample.setPixmap(pix)
+                except Exception:
+                    # fallback to solid color stylesheet
+                    try:
+                        r, g, b, _ = color.getRgb()
+                        sample.setStyleSheet(f"background-color: rgb({r},{g},{b}); border: 1px solid #333;")
+                    except Exception:
+                        sample.setStyleSheet("background-color: #000; border: 1px solid #333;")
+
+                text = QtWidgets.QLabel(lbl)
+                text.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+                entry = QtWidgets.QWidget()
+                h = QtWidgets.QHBoxLayout(entry)
+                h.setContentsMargins(4, 1, 8, 1)
+                h.setSpacing(6)
+                h.addWidget(sample)
+                h.addWidget(text)
+                layout.addWidget(entry)
+
+            layout.addStretch()
+        except Exception:
+            pass
     
     def _create_scatter_items(self):
         """Create scatter plot items for position markers."""
@@ -509,7 +628,7 @@ class PlotManager:
                 try:
                     # Start point - GREEN (BIGGER)
                     start_marker = pg.ScatterPlotItem(
-                        size=12,  # Increased from 8 to 12
+                        size=12,
                         brush=pg.mkBrush(0, 200, 0),  # Green
                         pen=pg.mkPen('k', width=2)
                     )
@@ -523,7 +642,7 @@ class PlotManager:
                     
                     # End point - RED (BIGGER)
                     end_marker = pg.ScatterPlotItem(
-                        size=12,  # Increased from 8 to 12
+                        size=12,
                         brush=pg.mkBrush(200, 0, 0),  # Red
                         pen=pg.mkPen('k', width=2)
                     )
