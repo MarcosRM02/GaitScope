@@ -38,10 +38,21 @@ class DataManager:
         self.sums_L: Optional[List[np.ndarray]] = None
         self.sums_R: Optional[List[np.ndarray]] = None
         
+        # Raw CSV data for heatmap (NEW)
+        self.raw_data_L: Optional[pd.DataFrame] = None
+        self.raw_data_R: Optional[pd.DataFrame] = None
+        
+        # Sensor coordinates for heatmap (loaded once at startup)
+        self.sensor_coords_L: Optional[List[Tuple[float, float]]] = None
+        self.sensor_coords_R: Optional[List[Tuple[float, float]]] = None
+        
         # GaitRite data
         self.gaitrite_df: Optional[pd.DataFrame] = None
         self.footprints_left_df: Optional[pd.DataFrame] = None
         self.footprints_right_df: Optional[pd.DataFrame] = None
+        
+        # Load sensor coordinates once at initialization
+        self._load_global_sensor_coordinates()
         
     def load_csv_data(self, csv_path_L: str, csv_path_R: Optional[str] = None) -> bool:
         """
@@ -66,6 +77,9 @@ class DataManager:
             return False
         dfL_sel = df_L.iloc[:, 0:max_col_L]
         
+        # Store raw data for heatmap (NEW)
+        self.raw_data_L = dfL_sel.copy()
+        
         # Try to load right side CSV
         df_R = None
         if csv_path_R and os.path.exists(csv_path_R):
@@ -77,8 +91,11 @@ class DataManager:
         if df_R is not None:
             max_col_R = min(DEFAULT_MAX_COLUMNS, df_R.shape[1])
             dfR_sel = df_R.iloc[:, 0:max_col_R] if max_col_R >= 1 else pd.DataFrame()
+            # Store raw data for heatmap (NEW)
+            self.raw_data_R = dfR_sel.copy()
         else:
             dfR_sel = pd.DataFrame()
+            self.raw_data_R = None
         
         # Calculate dimensions
         len_L = dfL_sel.shape[0]
@@ -374,16 +391,128 @@ class DataManager:
         except Exception as e:
             print(f"[DataManager] Error generating footprints from Yarray: {e}", flush=True)
     
+    def _load_global_sensor_coordinates(self):
+        """
+        Load global sensor coordinate files from video_gait_analyzer/in/ directory.
+        
+        These coordinates are the same for all participants, so we load them once
+        at initialization to improve performance.
+        """
+        import json
+        
+        # Get the path to the 'in' directory inside video_gait_analyzer package
+        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        in_dir = os.path.join(current_dir, 'in')
+        
+        if not os.path.exists(in_dir):
+            print(f"[DataManager] Warning: 'in' directory not found at {in_dir}", flush=True)
+            return
+        
+        # Try to load left sensor coordinates
+        left_coord_candidates = ['leftPoints.json', 'L.json', 'left.json']
+        for fname in left_coord_candidates:
+            path = os.path.join(in_dir, fname)
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    # Handle different JSON formats
+                    if isinstance(data, list):
+                        # Array of {"x": ..., "y": ...} or [[x, y], ...]
+                        coords = []
+                        for item in data:
+                            if isinstance(item, dict):
+                                x = float(item.get('x', 0.0))
+                                y = float(item.get('y', 0.0))
+                                coords.append((x, y))
+                            elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                                coords.append((float(item[0]), float(item[1])))
+                        self.sensor_coords_L = coords
+                    elif isinstance(data, dict):
+                        # Dictionary with 'coordinates' or 'points' key
+                        coords_data = data.get('coordinates') or data.get('points') or []
+                        coords = [(float(pt[0]), float(pt[1])) for pt in coords_data]
+                        self.sensor_coords_L = coords
+                    
+                    print(f"[DataManager] Loaded {len(self.sensor_coords_L)} left sensor coordinates", flush=True)
+                    break
+                except Exception as e:
+                    print(f"[DataManager] Error loading {fname}: {e}", flush=True)
+        
+        # Try to load right sensor coordinates
+        right_coord_candidates = ['rightPoints.json', 'R.json', 'right.json']
+        for fname in right_coord_candidates:
+            path = os.path.join(in_dir, fname)
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    # Handle different JSON formats
+                    if isinstance(data, list):
+                        coords = []
+                        for item in data:
+                            if isinstance(item, dict):
+                                x = float(item.get('x', 0.0))
+                                y = float(item.get('y', 0.0))
+                                coords.append((x, y))
+                            elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                                coords.append((float(item[0]), float(item[1])))
+                        self.sensor_coords_R = coords
+                    elif isinstance(data, dict):
+                        coords_data = data.get('coordinates') or data.get('points') or []
+                        coords = [(float(pt[0]), float(pt[1])) for pt in coords_data]
+                        self.sensor_coords_R = coords
+                    
+                    print(f"[DataManager] Loaded {len(self.sensor_coords_R)} right sensor coordinates", flush=True)
+                    break
+                except Exception as e:
+                    print(f"[DataManager] Error loading {fname}: {e}", flush=True)
+    
+    def get_heatmap_data(self) -> Optional[dict]:
+        """
+        Get raw CSV data and sensor coordinates for heatmap visualization.
+        
+        Returns:
+            Dictionary with heatmap data or None if not available:
+            {
+                'left_coords': List[Tuple[float, float]],
+                'right_coords': List[Tuple[float, float]],
+                'left_seq': List[List[int]],
+                'right_seq': List[List[int]]
+            }
+        """
+        if self.raw_data_L is None and self.raw_data_R is None:
+            return None
+        
+        # Convert pandas DataFrames to list of lists for heatmap
+        left_seq = []
+        if self.raw_data_L is not None:
+            left_seq = self.raw_data_L.fillna(0).astype(int).values.tolist()
+        
+        right_seq = []
+        if self.raw_data_R is not None:
+            right_seq = self.raw_data_R.fillna(0).astype(int).values.tolist()
+        
+        return {
+            'left_coords': self.sensor_coords_L or [],
+            'right_coords': self.sensor_coords_R or [],
+            'left_seq': left_seq,
+            'right_seq': right_seq
+        }
+    
     def get_time_axis(self) -> np.ndarray:
         """
-        Get time axis array in seconds.
+        Generate time axis array for CSV data based on sampling rate.
         
         Returns:
             Numpy array of time values in seconds
         """
-        if self.csv_sampling_rate > 0:
-            return np.arange(self.csv_len) / float(self.csv_sampling_rate)
-        return np.arange(self.csv_len)
+        if self.csv_len <= 0 or self.csv_sampling_rate <= 0:
+            return np.array([0.0])
+        
+        return np.arange(self.csv_len) / self.csv_sampling_rate
     
     def video_frame_to_csv_index(self, video_frame: int, video_fps: float) -> int:
         """

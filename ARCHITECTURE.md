@@ -313,6 +313,53 @@ def test_video_frame_to_csv_index():
 - Dialog boxes for critical errors
 - Console logging for debugging
 
+## Heatmap Integration
+
+### Overview
+
+The Heatmap_Project has been integrated into the Video Gait Analyzer, providing real-time pressure heatmap visualization alongside video playback and data plots.
+
+### Components
+
+1. **HeatmapAdapter** (`core/heatmap_adapter.py`)
+
+   - Qt-compatible wrapper for Heatmap_Project
+   - Manages animation thread with independent frame rate
+   - Provides thread-safe signal/slot communication
+
+2. **HeatmapWidget** (`widgets/heatmap_widget.py`)
+
+   - Display widget for heatmap frames
+   - Automatic aspect-ratio preserving scaling
+   - Efficient numpy→QImage→QPixmap pipeline
+
+3. **HeatmapUtils** (`utils/heatmap_utils.py`)
+   - Data loading utilities
+   - Automatic file discovery
+   - Validation and error handling
+
+### Architecture
+
+```
+Heatmap_Project (unchanged)
+        ↓
+  HeatmapAdapter (Qt Thread)
+        ↓ (signal: frame_ready)
+  HeatmapWidget
+        ↓
+  VideoPlayer UI
+```
+
+### Key Features
+
+- **Independent Playback**: Heatmap runs at configurable FPS (1-120 Hz)
+- **Optional Sync**: Can synchronize with video timeline
+- **Thread-Safe**: All operations via Qt signals/slots
+- **Optimized**: Preserves PreRenderer buffer and vectorization
+- **Non-Blocking**: Never blocks UI or video playback
+
+For detailed documentation, see `HEATMAP_INTEGRATION.md`.
+
 ## Future Enhancements
 
 ### Planned Features
@@ -321,6 +368,7 @@ def test_video_frame_to_csv_index():
 2. **Analysis tools**: Measure distances, angles
 3. **Comparison mode**: Side-by-side datasets
 4. **Plugin system**: Extensible architecture
+5. **Enhanced Heatmap**: Custom colormaps, parameter tuning
 
 ### Refactoring Opportunities
 

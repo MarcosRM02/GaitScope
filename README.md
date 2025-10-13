@@ -11,7 +11,8 @@ A comprehensive video player application with synchronized gait analysis data vi
 - **🔄 Real-time Synchronization**: Automatic synchronization between video frames and sensor data
 - **📊 Pressure Sensor Visualization**: Multi-channel pressure sensor data plotting with interactive cursor
 - **👣 GaitRite Analysis**: Footprint contour visualization and trajectory analysis
-- **📁 Dataset Management**: Intuitive navigation through subjects, categories, and sessions
+- **� Heatmap Visualization**: Real-time pressure heatmap animation with independent frame rate control (NEW!)
+- **�📁 Dataset Management**: Intuitive navigation through subjects, categories, and sessions
 - **⌨️ Keyboard Shortcuts**: Efficient control with keyboard shortcuts
 - **🎨 Modern UI**: Clean, responsive interface built with PyQt5
 
@@ -90,6 +91,13 @@ The application will automatically load:
 - **⏹ Reset**: Return to beginning
 - **Speed**: Adjust playback speed (0.01x to 2.0x)
 
+### Heatmap Controls (NEW!)
+
+- **▶ Play/⏸ Pause**: Start or pause heatmap animation (independent from video)
+- **FPS Spinner**: Adjust heatmap animation speed (1-120 Hz)
+- **Sync with video**: Toggle synchronization between heatmap and video timeline
+- Real-time pressure distribution visualization with Center of Pressure (COP) tracking
+
 ### Keyboard Shortcuts
 
 - `Space`: Play/Pause toggle
@@ -100,7 +108,8 @@ The application will automatically load:
 ### Data Visualization
 
 - **Upper Plot**: GaitRite footprint visualization with trajectory
-- **Lower Plot**: Synchronized pressure sensor data (4 groups per side)
+- **Lower Left Plot**: Synchronized pressure sensor data (4 groups per side)
+- **Lower Right Panel**: Real-time pressure heatmap with COP trails (NEW!)
 - **Yellow Cursor**: Current position synchronized across video and plots
 
 ## 📂 Project Structure
@@ -115,16 +124,19 @@ video_gait_analyzer/
 │   ├── video_player.py      # Main window (UI + coordination)
 │   ├── video_controller.py  # Video playback logic
 │   ├── data_manager.py      # Data loading and processing
-│   └── plot_manager.py      # Plot visualization management
+│   ├── plot_manager.py      # Plot visualization management
+│   └── heatmap_adapter.py   # Heatmap integration adapter (NEW!)
 ├── widgets/                 # Custom Qt widgets
 │   ├── __init__.py
 │   ├── clickable_slider.py  # Enhanced slider widget
-│   └── time_axis.py         # Time-formatted axis
+│   ├── time_axis.py         # Time-formatted axis
+│   └── heatmap_widget.py    # Heatmap display widget (NEW!)
 └── utils/                   # Utility functions
     ├── __init__.py
     ├── qt_config.py         # Qt plugin configuration
     ├── time_utils.py        # Time formatting utilities
-    └── file_utils.py        # File discovery utilities
+    ├── file_utils.py        # File discovery utilities
+    └── heatmap_utils.py     # Heatmap data loading (NEW!)
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation.
@@ -235,7 +247,11 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 - [Installation Guide](INSTALL.md)
 - [Migration Guide](MIGRATION.md) - For users migrating from old version
 - [Contributing Guidelines](CONTRIBUTING.md)
-- [Architecture Documentation](ARCHITECTURE.md) (coming soon)
+- [Architecture Documentation](ARCHITECTURE.md)
+- [Heatmap Integration Guide](HEATMAP_INTEGRATION.md) - Technical details of heatmap integration
+- [Heatmap Usage Guide](HEATMAP_USAGE.md) - User guide for heatmap features
+- [Implementation Summary](IMPLEMENTATION_SUMMARY.md) - Complete integration summary
+- [Verification Checklist](VERIFICATION_CHECKLIST.md) - Quality assurance checklist
 
 ## 🔄 Migrating from Old Version
 
