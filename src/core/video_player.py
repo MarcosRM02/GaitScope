@@ -748,6 +748,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
         self.progress_slider.setMaximum(
             max(0, self.video_controller.total_frames - 1)
         )
+        self.progress_slider.setValue(0)
         self.update_time_label()
         self.show_frame()
     
