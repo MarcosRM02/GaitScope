@@ -1,6 +1,6 @@
 # GaitScope
 
-[![Top language](https://img.shields.io/github/languages/top/MarcosRM02/GaitScope)](https://github.com/MarcosRM02/GaitScope) [![License](https://img.shields.io/github/license/MarcosRM02/GaitScope)](LICENSE) [![Build Status](https://img.shields.io/github/actions/workflow/status/MarcosRM02/GaitScope/python-app.yml?branch=main)](https://github.com/MarcosRM02/GaitScope/actions) [![Python](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/) [![Issues](https://img.shields.io/github/issues/MarcosRM02/GaitScope)](https://github.com/MarcosRM02/GaitScope/issues) [![Stars](https://img.shields.io/github/stars/MarcosRM02/GaitScope?style=social)](https://github.com/MarcosRM02/GaitScope/stargazers) [![Last commit](https://img.shields.io/github/last-commit/MarcosRM02/GaitScope)](https://github.com/MarcosRM02/GaitScope/commits/main)
+[![Top language](https://img.shields.io/github/languages/top/MarcosRM02/GaitScope)](https://github.com/MarcosRM02/GaitScope) [![License](https://img.shields.io/github/license/MarcosRM02/GaitScope)](LICENSE) (https://github.com/MarcosRM02/GaitScope/actions) [![Python](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/) [![Issues](https://img.shields.io/github/issues/MarcosRM02/GaitScope)](https://github.com/MarcosRM02/GaitScope/issues) [![Stars](https://img.shields.io/github/stars/MarcosRM02/GaitScope?style=social)](https://github.com/MarcosRM02/GaitScope/stargazers) [![Last commit](https://img.shields.io/github/last-commit/MarcosRM02/GaitScope)](https://github.com/MarcosRM02/GaitScope/commits/main)
 
 GaitScope is a desktop application for playing videos synchronized with gait analysis data (heatmaps, GaitRite footprints, time-series plots, etc.). It is built with PyQt5, OpenCV and pyqtgraph, and is intended to visualize data from insoles/sensors and systems like GaitRite.
 
@@ -134,20 +134,8 @@ This restores the system Python in the current terminal session.
 
 ---
 
-## Contributing
-
-If you'd like to contribute:
-
-1. Create a branch from `main`.
-2. Add tests or documentation for your changes where appropriate.
-3. Open a pull request with a clear description of the change.
-
----
-
 ## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
 
 ---
-
-If you want additional sections (Docker instructions, CI examples, automated tests), tell me and I will add them.
