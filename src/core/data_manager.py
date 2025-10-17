@@ -213,51 +213,54 @@ class DataManager:
         Returns:
             True if any data loaded successfully, False otherwise
         """
-        gait_file = os.path.join(base_directory, GAITRITE_FILE_NAME)
+        from pathlib import Path
+
+        base = Path(base_directory).expanduser().resolve()
+        gait_file = base / GAITRITE_FILE_NAME
         
         # Load main gaitrite file
-        if os.path.exists(gait_file):
+        if gait_file.exists():
             try:
                 try:
-                    self.gaitrite_df = pd.read_csv(gait_file, delimiter=';')
+                    self.gaitrite_df = pd.read_csv(str(gait_file), delimiter=';')
                 except Exception:
-                    self.gaitrite_df = pd.read_csv(gait_file)
+                    self.gaitrite_df = pd.read_csv(str(gait_file))
                 print(f"[DataManager] Loaded GaitRite data: {gait_file}", flush=True)
             except Exception as e:
                 print(f"[DataManager] Error loading GaitRite data: {e}", flush=True)
                 self.gaitrite_df = None
-        
-        # Check if footprint files exist
-        left_fp_paths = [os.path.join(base_directory, name) for name in FOOTPRINT_FILE_NAMES['left']]
-        right_fp_paths = [os.path.join(base_directory, name) for name in FOOTPRINT_FILE_NAMES['right']]
-        
-        left_exists = any(os.path.exists(p) for p in left_fp_paths)
-        right_exists = any(os.path.exists(p) for p in right_fp_paths)
-        
+
+        # Check if footprint files exist using pathlib candidates
+        left_fp_paths = [base / name for name in FOOTPRINT_FILE_NAMES['left']]
+        right_fp_paths = [base / name for name in FOOTPRINT_FILE_NAMES['right']]
+
+        left_exists = any(p.exists() for p in left_fp_paths)
+        right_exists = any(p.exists() for p in right_fp_paths)
+
         # Generate footprints if they don't exist (EXACTLY as original)
-        if (not left_exists or not right_exists) and os.path.exists(gait_file):
-            self._generate_footprints_from_yarray(base_directory, gait_file, left_exists, right_exists)
-        
+        if (not left_exists or not right_exists) and gait_file.exists():
+            self._generate_footprints_from_yarray(str(base), str(gait_file), left_exists, right_exists)
+
         # Try to find left footprints
         for path in left_fp_paths:
-            if os.path.exists(path):
+            if path.exists():
                 try:
-                    self.footprints_left_df = pd.read_csv(path)
+                    self.footprints_left_df = pd.read_csv(str(path))
                     print(f"[DataManager] Loaded left footprints: {path}", flush=True)
                     break
                 except Exception:
                     pass
-        
+
         # Try to find right footprints
         for path in right_fp_paths:
-            if os.path.exists(path):
+            if path.exists():
                 try:
-                    self.footprints_right_df = pd.read_csv(path)
+                    self.footprints_right_df = pd.read_csv(str(path))
                     print(f"[DataManager] Loaded right footprints: {path}", flush=True)
                     break
                 except Exception:
                     pass
-        
+
         return (self.gaitrite_df is not None or 
                 self.footprints_left_df is not None or 
                 self.footprints_right_df is not None)
@@ -399,22 +402,23 @@ class DataManager:
         at initialization to improve performance.
         """
         import json
-        
+        from pathlib import Path
+
         # Get the path to the 'in' directory inside the package root
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        in_dir = os.path.join(current_dir, 'in')
-        
-        if not os.path.exists(in_dir):
+        current_dir = Path(__file__).resolve().parents[1]
+        in_dir = current_dir / 'in'
+
+        if not in_dir.exists():
             print(f"[DataManager] Warning: 'in' directory not found at {in_dir}", flush=True)
             return
-        
+
         # Try to load left sensor coordinates
         left_coord_candidates = ['leftPoints.json', 'L.json', 'left.json']
         for fname in left_coord_candidates:
-            path = os.path.join(in_dir, fname)
-            if os.path.exists(path):
+            path = in_dir / fname
+            if path.exists():
                 try:
-                    with open(path, 'r', encoding='utf-8') as f:
+                    with path.open('r', encoding='utf-8') as f:
                         data = json.load(f)
                     
                     # Handle different JSON formats
@@ -443,10 +447,10 @@ class DataManager:
         # Try to load right sensor coordinates
         right_coord_candidates = ['rightPoints.json', 'R.json', 'right.json']
         for fname in right_coord_candidates:
-            path = os.path.join(in_dir, fname)
-            if os.path.exists(path):
+            path = in_dir / fname
+            if path.exists():
                 try:
-                    with open(path, 'r', encoding='utf-8') as f:
+                    with path.open('r', encoding='utf-8') as f:
                         data = json.load(f)
                     
                     # Handle different JSON formats
