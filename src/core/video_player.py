@@ -9,7 +9,7 @@ import os
 import sys
 import re
 from typing import Optional
-from PyQt5 import QtWidgets, QtCore, QtGui
+from PyQt6 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
 import cv2
 
@@ -144,7 +144,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
         # Video display label
         self.video_label = QtWidgets.QLabel()
         self.video_label.setStyleSheet(f"background-color: {DEFAULT_VIDEO_BACKGROUND};")
-        self.video_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.video_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         # Make the label expand/shrink with the window and avoid automatic pixmap stretching
         try:
             self.video_label.setScaledContents(False)
@@ -281,7 +281,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
         layout = QtWidgets.QHBoxLayout()
         
         # Progress slider
-        self.progress_slider = ClickableSlider(QtCore.Qt.Horizontal)
+        self.progress_slider = ClickableSlider(QtCore.Qt.Orientation.Horizontal)
         self.progress_slider.setMinimum(0)
         self.progress_slider.setMaximum(0)
         self.progress_slider.sliderReleased.connect(self.on_slider_released)
@@ -459,11 +459,11 @@ class VideoPlayer(QtWidgets.QMainWindow):
     
     def _setup_shortcuts(self):
         """Setup keyboard shortcuts."""
-        QtWidgets.QShortcut(QtGui.QKeySequence('Space'), self, 
+        QtGui.QShortcut(QtGui.QKeySequence('Space'), self, 
                            activated=self.toggle_play_pause)
-        QtWidgets.QShortcut(QtGui.QKeySequence('Left'), self, 
+        QtGui.QShortcut(QtGui.QKeySequence('Left'), self, 
                            activated=self.prev_frame)
-        QtWidgets.QShortcut(QtGui.QKeySequence('Right'), self, 
+        QtGui.QShortcut(QtGui.QKeySequence('Right'), self,
                            activated=self.next_frame)
     
     # ==================== Video Control Methods ====================
@@ -662,11 +662,11 @@ class VideoPlayer(QtWidgets.QMainWindow):
             # Convert BGR -> RGB and create QImage
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
             bytes_per_line = 3 * w0
-            image = QtGui.QImage(frame_rgb.data, w0, h0, bytes_per_line, QtGui.QImage.Format_RGB888)
+            image = QtGui.QImage(frame_rgb.data, w0, h0, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
             pix = QtGui.QPixmap.fromImage(image)
 
             # Scale to fit inside label while preserving aspect ratio (no cropping)
-            pix = pix.scaled(target_w, target_h, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+            pix = pix.scaled(target_w, target_h, QtCore.Qt.AspectRatioMode.KeepAspectRatio, QtCore.Qt.TransformationMode.SmoothTransformation)
             self.video_label.setPixmap(pix)
         except Exception:
             try:
@@ -674,7 +674,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
                 frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
                 h, w = frame_rgb.shape[:2]
                 bytes_per_line = 3 * w
-                image = QtGui.QImage(frame_rgb.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888)
+                image = QtGui.QImage(frame_rgb.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
                 pix = QtGui.QPixmap.fromImage(image).scaled(
                     max(1, self.video_label.width()),
                     max(1, self.video_label.height()),

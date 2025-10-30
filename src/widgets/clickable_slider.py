@@ -5,7 +5,7 @@ A custom QSlider that responds to clicks anywhere on the slider bar,
 immediately jumping to the clicked position.
 """
 
-from PyQt5 import QtWidgets, QtCore
+from PyQt6 import QtWidgets, QtCore
 
 
 class ClickableSlider(QtWidgets.QSlider):
@@ -27,7 +27,7 @@ class ClickableSlider(QtWidgets.QSlider):
         """
         try:
             # Calculate value based on click position (supports Horizontal and Vertical)
-            if self.orientation() == QtCore.Qt.Horizontal:
+            if self.orientation() == QtCore.Qt.Orientation.Horizontal:
                 x = event.pos().x()
                 w = max(1, self.width())
                 ratio = float(x) / float(w)

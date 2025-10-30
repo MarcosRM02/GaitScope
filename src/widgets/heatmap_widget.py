@@ -7,7 +7,7 @@ frame updates via Qt signals.
 """
 
 import numpy as np
-from PyQt5 import QtWidgets, QtCore, QtGui
+from PyQt6 import QtWidgets, QtCore, QtGui
 import cv2
 
 
@@ -28,7 +28,7 @@ class HeatmapWidget(QtWidgets.QWidget):
         
         # Create label for displaying frames
         self.image_label = QtWidgets.QLabel()
-        self.image_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.image_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.image_label.setStyleSheet("background-color: #f0f0f0;")
         self.image_label.setScaledContents(False)
         
@@ -71,7 +71,7 @@ class HeatmapWidget(QtWidgets.QWidget):
                 w, 
                 h, 
                 bytes_per_line, 
-                QtGui.QImage.Format_RGB888
+                QtGui.QImage.Format.Format_RGB888
             )
             
             # Create pixmap
@@ -94,8 +94,8 @@ class HeatmapWidget(QtWidgets.QWidget):
         # Scale pixmap to fit label while preserving aspect ratio
         scaled_pixmap = self._original_pixmap.scaled(
             label_size,
-            QtCore.Qt.KeepAspectRatio,
-            QtCore.Qt.SmoothTransformation
+            QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+            QtCore.Qt.TransformationMode.SmoothTransformation
         )
         
         # Display scaled pixmap

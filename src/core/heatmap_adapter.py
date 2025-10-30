@@ -16,7 +16,7 @@ API:
 - set_rate(hz): Change animation frame rate
 - set_data(left_coords, right_coords, left_seq, right_seq): Load heatmap data
 - set_size(width, height): Update render dimensions
-- update_params(**kwargs): Update heatmap rendering parameters
+- update_params(**kwargs): Update heatmap rendering
 - seek(frame_idx): Jump to specific frame
 - get_current_frame_index(): Get current frame index
 
@@ -29,7 +29,7 @@ import sys
 import os
 from typing import List, Tuple, Optional
 import numpy as np
-from PyQt5 import QtCore
+from PyQt6 import QtCore
 
 try:
     # Prefer bundled heatmap_project package inside video_gait_analyzer
@@ -254,7 +254,7 @@ class HeatmapAdapter(QtCore.QObject):
         # Seek to current position to emit initial frame
         if current_frame_idx > 0:
             QtCore.QMetaObject.invokeMethod(
-                self.worker, 'seek', QtCore.Qt.QueuedConnection,
+                self.worker, 'seek', QtCore.Qt.ConnectionType.QueuedConnection,
                 QtCore.Q_ARG(int, current_frame_idx)
             )
         
@@ -268,7 +268,7 @@ class HeatmapAdapter(QtCore.QObject):
         # Stop worker
         if self.worker:
             QtCore.QMetaObject.invokeMethod(
-                self.worker, 'stop', QtCore.Qt.QueuedConnection
+                self.worker, 'stop', QtCore.Qt.ConnectionType.QueuedConnection
             )
         
         # Wait for thread to finish
@@ -285,7 +285,7 @@ class HeatmapAdapter(QtCore.QObject):
         """Pause animation (keeps thread alive)."""
         if self.worker:
             QtCore.QMetaObject.invokeMethod(
-                self.worker, 'set_playing', QtCore.Qt.QueuedConnection,
+                self.worker, 'set_playing', QtCore.Qt.ConnectionType.QueuedConnection,
                 QtCore.Q_ARG(bool, False)
             )
     
@@ -293,7 +293,7 @@ class HeatmapAdapter(QtCore.QObject):
         """Resume animation."""
         if self.worker:
             QtCore.QMetaObject.invokeMethod(
-                self.worker, 'set_playing', QtCore.Qt.QueuedConnection,
+                self.worker, 'set_playing', QtCore.Qt.ConnectionType.QueuedConnection,
                 QtCore.Q_ARG(bool, True)
             )
     
@@ -302,7 +302,7 @@ class HeatmapAdapter(QtCore.QObject):
         self.params['fps'] = hz
         if self.worker:
             QtCore.QMetaObject.invokeMethod(
-                self.worker, 'set_fps', QtCore.Qt.QueuedConnection,
+                self.worker, 'set_fps', QtCore.Qt.ConnectionType.QueuedConnection,
                 QtCore.Q_ARG(float, hz)
             )
     
@@ -412,7 +412,7 @@ class HeatmapAdapter(QtCore.QObject):
         
         if self.worker:
             QtCore.QMetaObject.invokeMethod(
-                self.worker, 'seek', QtCore.Qt.QueuedConnection,
+                self.worker, 'seek', QtCore.Qt.ConnectionType.QueuedConnection,
                 QtCore.Q_ARG(int, frame_idx)
             )
         else:

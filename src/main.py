@@ -16,6 +16,7 @@ import os
 import sys
 import importlib
 from typing import Optional, Tuple
+from PyQt6 import QtWidgets, QtGui
 
 
 def detect_qt_binding() -> Optional[str]:
@@ -23,7 +24,7 @@ def detect_qt_binding() -> Optional[str]:
 
     Checks for PyQt5, PyQt6, PySide2, PySide6 (in that order of preference).
     """
-    for name in ("PyQt5", "PyQt6", "PySide2", "PySide6"):
+    for name in ("PyQt6", "PyQt5", "PySide2", "PySide6"):
         try:
             if importlib.util.find_spec(name) is not None:
                 return name
@@ -37,11 +38,11 @@ def import_qt_widgets(binding: str):
 
     Raises ImportError on failure.
     """
-    if binding == "PyQt5":
-        from PyQt5 import QtWidgets  # type: ignore
-        return QtWidgets
     if binding == "PyQt6":
         from PyQt6 import QtWidgets  # type: ignore
+        return QtWidgets
+    if binding == "PyQt5":
+        from PyQt5 import QtWidgets  # type: ignore
         return QtWidgets
     if binding == "PySide2":
         from PySide2 import QtWidgets  # type: ignore
@@ -51,6 +52,11 @@ def import_qt_widgets(binding: str):
         return QtWidgets
 
     # Fallback: try common imports
+    try:
+        from PyQt6 import QtWidgets  # type: ignore
+        return QtWidgets
+    except Exception:
+        pass
     try:
         from PyQt5 import QtWidgets  # type: ignore
         return QtWidgets
@@ -84,12 +90,23 @@ def run_gui(QtWidgets, VideoPlayer) -> int:
     app.setQuitOnLastWindowClosed(True)
     app.aboutToQuit.connect(lambda: print("[VideoGaitAnalyzer] Application quitting", flush=True))
 
+    # Set application icon
+    if hasattr(sys, '_MEIPASS'):
+        # Running in PyInstaller bundle
+        icon_path = os.path.join(sys._MEIPASS, 'assets', 'Logo.png')
+    else:
+        # Running in development
+        icon_path = os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'Logo.png')
+    
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QtGui.QIcon(icon_path))
+
     player = VideoPlayer()
     print("[VideoGaitAnalyzer] Showing main window", flush=True)
     player.show()
 
     print("[VideoGaitAnalyzer] Entering event loop", flush=True)
-    rc = app.exec_()
+    rc = app.exec()
     print(f"[VideoGaitAnalyzer] Application exited with code {rc}", flush=True)
     return rc
 
@@ -102,11 +119,11 @@ def main() -> None:
         qt_binding = detect_qt_binding()
         if qt_binding is None:
             print(
-                "[VideoGaitAnalyzer] No Qt bindings found (PyQt5/PyQt6/PySide2/PySide6).\n"
+                "[VideoGaitAnalyzer] No Qt bindings found (PyQt6/PyQt5/PySide2/PySide6).\n"
                 "Install the GUI extras to run the application, e.g.:\n"
                 "    pip install .[gui]\n"
                 "or install a binding directly, e.g.:\n"
-                "    pip install PyQt5\n",
+                "    pip install PyQt6\n",
                 flush=True,
             )
             sys.exit(2)

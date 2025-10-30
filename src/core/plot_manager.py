@@ -12,7 +12,7 @@ import time
 import numpy as np
 import pandas as pd
 from typing import Optional, List, Tuple
-from PyQt5 import QtCore, QtWidgets, QtGui
+from PyQt6 import QtCore, QtWidgets, QtGui
 import pyqtgraph as pg
 
 from ..constants import (
@@ -163,7 +163,7 @@ class PlotManager:
                     pass
                 # Prevent any mouse interaction on the plot widget (completely read-only)
                 try:
-                    self.plot_widget.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+                    self.plot_widget.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
                 except Exception:
                     pass
             except Exception:
@@ -223,7 +223,7 @@ class PlotManager:
                 pen_R = pg.mkPen(
                     PLOT_COLORS[group_idx % len(PLOT_COLORS)], 
                     width=2, 
-                    style=QtCore.Qt.DashLine
+                    style=QtCore.Qt.PenStyle.DashLine
                 )
                 label_R = f'R {group_labels[group_idx]}'
                 plot_item_R = self.plot_widget.plot(x_data, y_R, pen=pen_R)
@@ -334,7 +334,7 @@ class PlotManager:
                         sample.setStyleSheet("background-color: #000; border: 1px solid #333;")
 
                 text = QtWidgets.QLabel(lbl)
-                text.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+                text.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
                 entry = QtWidgets.QWidget()
                 h = QtWidgets.QHBoxLayout(entry)
                 h.setContentsMargins(4, 1, 8, 1)

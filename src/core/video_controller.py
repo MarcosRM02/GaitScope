@@ -12,7 +12,7 @@ Handles all video playback operations including:
 import time
 from typing import Optional
 import cv2
-from PyQt5 import QtCore
+from PyQt6 import QtCore
 
 
 class VideoController:

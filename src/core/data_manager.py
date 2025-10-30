@@ -402,11 +402,17 @@ class DataManager:
         at initialization to improve performance.
         """
         import json
+        import sys
         from pathlib import Path
 
-        # Get the path to the 'in' directory inside the package root
-        current_dir = Path(__file__).resolve().parents[1]
-        in_dir = current_dir / 'in'
+        # Get the path to the 'in' directory, compatible with PyInstaller
+        if hasattr(sys, '_MEIPASS'):
+            # Running in PyInstaller bundle
+            in_dir = Path(sys._MEIPASS) / 'in'
+        else:
+            # Running in development
+            current_dir = Path(__file__).resolve().parents[1]
+            in_dir = current_dir / 'in'
 
         if not in_dir.exists():
             print(f"[DataManager] Warning: 'in' directory not found at {in_dir}", flush=True)
