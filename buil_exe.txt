@@ -1,6 +1,5 @@
 # For Linux
 
-## With pyinstaller
 pyinstaller --onefile --clean --noconfirm --hidden-import=sip \
   --add-data "src/in:in" --add-data "data:data" -n gaitscope ./launcher.py
 
@@ -9,22 +8,4 @@ pyinstaller --onefile --clean --noconfirm --hidden-import=PyQt6.QtCore --add-dat
 
 # For Windows
 
-pyinstaller --onefile --clean --noconfirm `
-  --hidden-import=sip `
-  --hidden-import=PyQt6.QtCore `
-  --add-data "src\in;in" `
-  --add-data "data;data" `
-  -n gaitscope .\launcher.py
-
-
-    --icon=assets\Logo.ico `
-
-
-pyinstaller --onefile --clean --noconfirm `
-  --windowed `
-  --hidden-import=sip `
-  --hidden-import=PyQt6.QtCore `
-  --add-data "src\in;in" `
-  --add-data "data;data" `
-  --icon=assets\Logo.ico `
-  -n gaitscope .\launcher.py
+pyinstaller --onedir --clean --noconfirm --hidden-import=PyQt6.QtCore --hidden-import=PyQt6.QtGui --hidden-import=PyQt6.QtWidgets --hidden-import=PyQt6.QtMultimedia --add-data "src/in;in" --add-data "data;data" --windowed -n gaitscope launcher.py
