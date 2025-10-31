@@ -524,27 +524,37 @@ class DataManager:
         
         return np.arange(self.csv_len) / self.csv_sampling_rate
     
-    def video_frame_to_csv_index(self, video_frame: int, video_fps: float) -> int:
+    def video_frame_to_csv_index(self, video_frame: int, video_fps: float, video_total_frames: int = None) -> int:
         """
         Map video frame number to CSV sample index.
         
+        Uses proportional mapping to ensure the last video frame maps to the last CSV sample,
+        regardless of small timing differences between video and CSV durations.
+        
         Args:
-            video_frame: Video frame number
+            video_frame: Current video frame number
             video_fps: Video frames per second
+            video_total_frames: Total frames in video (optional, enables proportional mapping)
             
         Returns:
             Corresponding CSV sample index
         """
-        if video_fps <= 0 or self.csv_sampling_rate <= 0:
+        if video_fps <= 0 or self.csv_sampling_rate <= 0 or self.csv_len <= 0:
             return 0
         
-        t = float(video_frame) / float(video_fps)
-        idx = int(round(t * float(self.csv_sampling_rate)))
-        
-        if self.csv_len:
-            idx = max(0, min(idx, self.csv_len - 1))
+        # If total frames provided, use proportional mapping to ensure we reach the end
+        if video_total_frames is not None and video_total_frames > 1:
+            # Proportional mapping: ensures last video frame -> last CSV sample
+            # Using round() instead of int() for better accuracy
+            proportion = float(video_frame) / float(max(1, video_total_frames - 1))
+            idx = round(proportion * float(max(1, self.csv_len - 1)))
         else:
-            idx = max(0, idx)
+            # Fallback to time-based mapping
+            t = float(video_frame) / float(video_fps)
+            idx = round(t * float(self.csv_sampling_rate))
+        
+        # Clamp to valid range
+        idx = max(0, min(idx, self.csv_len - 1))
         
         return idx
     

@@ -486,6 +486,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
                     self.btn_heatmap_play.setText('▶ Play')
         else:
             # Play video
+            print(f"[Play] Starting playback from frame {self.video_controller.current_frame}/{self.video_controller.total_frames-1}", flush=True)
             self.video_controller.is_playing = True
             interval = self.video_controller.get_timer_interval()
             self.video_controller.timer.start(interval)
@@ -576,9 +577,32 @@ class VideoPlayer(QtWidgets.QMainWindow):
     
     def _on_timer(self):
         """Handle timer tick for video playback."""
+        # Check if we're at the last frame BEFORE advancing
+        at_last_frame = self.video_controller.current_frame >= self.video_controller.total_frames - 1
+        
+        # Debug: log when approaching last frame
+        if self.video_controller.current_frame >= self.video_controller.total_frames - 5:
+            print(f"[Timer] Frame {self.video_controller.current_frame}/{self.video_controller.total_frames-1}, at_last={at_last_frame}", flush=True)
+        
+        if at_last_frame:
+            # Already at last frame, stop playback
+            print(f"[Timer] Reached last frame ({self.video_controller.current_frame}), stopping playback", flush=True)
+            self.video_controller.is_playing = False
+            self.video_controller.timer.stop()
+            self.btn_play.setText('▶ Play')
+            # Pause heatmap as well
+            if self.heatmap_adapter.is_available():
+                if self.heatmap_adapter.worker and self.heatmap_adapter.worker._playing:
+                    self.heatmap_adapter.pause()
+                    self.btn_heatmap_play.setText('▶ Play')
+            return
+        
+        # Advance to next frame
         ret, frame = self.video_controller.advance_frame()
 
         if not ret:
+            # Failed to read frame, stop playback
+            print(f"[Timer] Failed to read frame at {self.video_controller.current_frame}, stopping", flush=True)
             self.video_controller.is_playing = False
             self.video_controller.timer.stop()
             self.btn_play.setText('▶ Play')
@@ -589,20 +613,11 @@ class VideoPlayer(QtWidgets.QMainWindow):
                     self.btn_heatmap_play.setText('▶ Play')
             return
 
+        # Display frame and update UI
         self._display_frame(frame)
         self._update_csv_cursor_from_video()
         self.progress_slider.setValue(self.video_controller.current_frame)
         self.update_time_label()
-
-        if self.video_controller.current_frame >= self.video_controller.total_frames - 1:
-            self.video_controller.is_playing = False
-            self.video_controller.timer.stop()
-            self.btn_play.setText('▶ Play')
-            # Pause heatmap as well
-            if self.heatmap_adapter.is_available():
-                if self.heatmap_adapter.worker and self.heatmap_adapter.worker._playing:
-                    self.heatmap_adapter.pause()
-                    self.btn_heatmap_play.setText('▶ Play')
     
     # ==================== Heatmap Control Methods ====================
     
@@ -873,10 +888,15 @@ class VideoPlayer(QtWidgets.QMainWindow):
         if self.data_manager.sums_L is None:
             return
 
-        # Translate current video frame into a CSV index, then clamp to valid range.
+        # Check if we're at the last video frame
+        at_last_video_frame = (self.video_controller.current_frame >= self.video_controller.total_frames - 1)
+
+        # Map video frame to CSV index using proportional mapping
+        # This ensures the last video frame maps to the last CSV sample
         csv_idx = self.data_manager.video_frame_to_csv_index(
             self.video_controller.current_frame,
-            self.video_controller.fps
+            self.video_controller.fps,
+            self.video_controller.total_frames  # Pass total frames for proportional mapping
         )
 
         # Ensure csv_idx is within [0, csv_len-1] to avoid out-of-range times
@@ -888,16 +908,28 @@ class VideoPlayer(QtWidgets.QMainWindow):
             except Exception:
                 csv_idx = 0
 
-        # Compute CSV time from clamped index
+        # FORCE last CSV index if we're at the last video frame (covers edge cases)
+        if at_last_video_frame:
+            csv_idx = self.data_manager.csv_len - 1
+
+        # Compute cursor time from CSV index
+        # When at the last CSV sample, ensure cursor is at the exact position of that sample
         csv_time = float(csv_idx) / float(self.data_manager.csv_sampling_rate) \
             if getattr(self.data_manager, 'csv_sampling_rate', 0) > 0 else float(csv_idx)
 
+        # Debug logging for last frame sync
+        if self.video_controller.current_frame >= self.video_controller.total_frames - 5:
+            print(f"[VideoPlayer] Frame {self.video_controller.current_frame}/{self.video_controller.total_frames}, csv_idx={csv_idx}/{self.data_manager.csv_len}, csv_time={csv_time:.4f}, at_last={at_last_video_frame}", flush=True)
+
         # Update cursor position (vertical yellow line)
+        # Pass csv_len AND at_last_video_frame so plot_manager can position cursor correctly
         self.plot_manager.update_cursor_position(
             csv_time,
             self.data_manager.sums_L,
             self.data_manager.sums_R,
-            csv_idx
+            csv_idx,
+            self.data_manager.csv_len,  # Pass csv_len to detect last sample
+            at_last_video_frame  # Pass flag to force end position
         )
         
         # Sync heatmap if enabled
@@ -923,26 +955,28 @@ class VideoPlayer(QtWidgets.QMainWindow):
     def _sync_heatmap_to_video(self):
         """Synchronize heatmap frame with video frame.
 
-        Maps current video frame proportionally into the heatmap frame index and
-        seeks the heatmap adapter to that frame. This method was accidentally
-        removed earlier; restore it so other code can call it safely.
+        Uses proportional mapping to ensure the last video frame maps to the last heatmap frame,
+        maintaining perfect synchronization throughout playback.
         """
         if not self.heatmap_adapter.is_available():
             return
 
         try:
             video_frame = int(self.video_controller.current_frame)
-            video_total = int(self.video_controller.total_frames) if getattr(self.video_controller, 'total_frames', 0) is not None else 0
-            heatmap_total = int(self.heatmap_adapter.get_total_frames());
+            video_total = int(self.video_controller.total_frames)
+            heatmap_total = int(self.heatmap_adapter.get_total_frames())
 
-            if video_total > 0 and heatmap_total > 0:
-                heatmap_frame = int((video_frame / max(1, video_total)) * heatmap_total)
-                # clamp
+            if video_total > 1 and heatmap_total > 1:
+                # Proportional mapping: last video frame -> last heatmap frame
+                # Using round() instead of int() for better accuracy
+                proportion = float(video_frame) / float(video_total - 1)
+                heatmap_frame = round(proportion * float(heatmap_total - 1))
+                # Clamp to valid range
                 heatmap_frame = max(0, min(heatmap_frame, heatmap_total - 1))
                 self.heatmap_adapter.seek(heatmap_frame)
-        except Exception:
-            # be silent on sync errors to avoid interrupting UI
-            pass
+        except Exception as e:
+            # Log error for debugging but don't interrupt UI
+            print(f"[VideoPlayer] Heatmap sync error: {e}", flush=True)
 
     # ==================== Dataset Selector Methods ====================
     

@@ -82,6 +82,9 @@ class PlotManager:
         self._last_plot_update: float = 0.0
         self._plot_update_interval: float = PLOT_UPDATE_INTERVAL
         
+        # X-axis range tracking (to ensure cursor reaches end of visible range)
+        self._x_max: float = 0.0
+        
     def create_csv_plots(self, x_data: np.ndarray, sums_L: List[np.ndarray], 
                          sums_R: List[np.ndarray], r_offset: float = None):
         """
@@ -416,7 +419,9 @@ class PlotManager:
     def update_cursor_position(self, time_seconds: float, 
                               sums_L: Optional[List[np.ndarray]] = None,
                               sums_R: Optional[List[np.ndarray]] = None,
-                              csv_idx: Optional[int] = None):
+                              csv_idx: Optional[int] = None,
+                              csv_len: Optional[int] = None,
+                              at_last_video_frame: bool = False):
         """
         Update cursor line position based on video time.
         
@@ -425,9 +430,20 @@ class PlotManager:
             sums_L: Left side data (optional, for backward compatibility)
             sums_R: Right side data (optional, for backward compatibility)
             csv_idx: CSV index (optional, for backward compatibility)
+            csv_len: Total CSV length (optional, to detect last sample)
+            at_last_video_frame: Flag indicating we're at the last video frame
         """
         if self.cursor_line is not None:
-            self.cursor_line.setPos(time_seconds)
+            # Force cursor to end if either condition is true:
+            # 1. We're at the last video frame (covers all edge cases)
+            # 2. We're at the last CSV sample (double-check)
+            force_to_end = at_last_video_frame or (csv_idx is not None and csv_len is not None and csv_idx >= csv_len - 1)
+            
+            if force_to_end and self._x_max > 0:
+                print(f"[PlotManager] Forcing cursor to end: at_last_frame={at_last_video_frame}, csv_idx={csv_idx}/{csv_len}, x_max={self._x_max:.4f}", flush=True)
+                self.cursor_line.setPos(self._x_max)
+            else:
+                self.cursor_line.setPos(time_seconds)
     
     def set_plot_x_range(self, x_min: float, x_max: float):
         """
@@ -437,6 +453,8 @@ class PlotManager:
             x_min: Minimum X value (time in seconds)
             x_max: Maximum X value (time in seconds)
         """
+        self._x_max = x_max  # Store for cursor positioning
+        print(f"[PlotManager] set_plot_x_range: x_min={x_min:.4f}, x_max={x_max:.4f}", flush=True)
         self.plot_widget.setXRange(x_min, x_max, padding=0)
     
     def update_markers(self, csv_index: int, x_data: np.ndarray, 

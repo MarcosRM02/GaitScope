@@ -66,8 +66,26 @@ class VideoController:
             print(f"[VideoController] Failed to open video: {path}", flush=True)
             return False
         
-        self.total_frames = int(self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        reported_frames = int(self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.fps = float(self.video_cap.get(cv2.CAP_PROP_FPS)) or 30.0
+        self.current_frame = 0
+        
+        # Ensure video is positioned at frame 0
+        self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        
+        # Verify actual readable frames by testing the last frame
+        # OpenCV sometimes reports incorrect frame counts
+        self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, reported_frames - 1)
+        ret, _ = self.video_cap.read()
+        if ret:
+            self.total_frames = reported_frames
+        else:
+            # Last frame not readable, use one less
+            self.total_frames = reported_frames - 1
+            print(f"[VideoController] Adjusted frame count from {reported_frames} to {self.total_frames}", flush=True)
+        
+        # Reset to beginning
+        self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         self.current_frame = 0
         
         print(f"[VideoController] Loaded video: {path}, frames={self.total_frames}, fps={self.fps}", flush=True)

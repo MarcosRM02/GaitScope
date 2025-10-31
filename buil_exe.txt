@@ -1,24 +1,30 @@
 # For Linux
 
-## Con nuitka
-sudo apt install patchelf
-sudo apt install build-essential clang 
-pip install sip
-nuitka ./launcher.py \
-  --onefile --standalone --remove-output \
-  --include-data-dir=src/in=in \
-  --include-data-dir=data=data \
-  --output-filename=gaitscope_N \
-  --lto=yes --clang --assume-yes-for-downloads
-
-## Con pyinstaller
+## With pyinstaller
 pyinstaller --onefile --clean --noconfirm --hidden-import=sip \
   --add-data "src/in:in" --add-data "data:data" -n gaitscope ./launcher.py
 
 pyinstaller --onefile --clean --noconfirm --hidden-import=PyQt6.QtCore --add-data "src/in:in" --add-data "data:data" --icon=assets/Logo.png -n gaitscope ./launcher.py
 
 
-| Aspecto   | **Nuitka**                                                                                    | **PyInstaller**                                                                                     |
-| --------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Mecanismo | **Compila tu código Python a C**, y luego a binario con un compilador real (GCC, MSVC, etc.). | **Empaqueta tu script con el intérprete de Python** y todas sus dependencias en un solo ejecutable. |
-| Resultado | Ejecutable **realmente compilado**, más rápido y más difícil de desensamblar.                 | Ejecutable **empaquetado**, que descomprime y ejecuta Python internamente.                          |
+# For Windows
+
+pyinstaller --onefile --clean --noconfirm `
+  --hidden-import=sip `
+  --hidden-import=PyQt6.QtCore `
+  --add-data "src\in;in" `
+  --add-data "data;data" `
+  -n gaitscope .\launcher.py
+
+
+    --icon=assets\Logo.ico `
+
+
+pyinstaller --onefile --clean --noconfirm `
+  --windowed `
+  --hidden-import=sip `
+  --hidden-import=PyQt6.QtCore `
+  --add-data "src\in;in" `
+  --add-data "data;data" `
+  --icon=assets\Logo.ico `
+  -n gaitscope .\launcher.py
