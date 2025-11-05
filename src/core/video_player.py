@@ -6,7 +6,9 @@ video playback, data visualization, and user interface.
 """
 
 import os
+import sys
 import re
+from typing import Optional
 from PyQt6 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
 import cv2
@@ -17,8 +19,9 @@ from ..constants import (
     DEFAULT_WINDOW_HEIGHT,
     DEFAULT_VIDEO_BACKGROUND,
     PLAYBACK_SPEED_OPTIONS,
+    DEFAULT_PLOT_WINDOW_SECONDS,
 )
-from ..utils import format_time_mmss, find_video_file
+from ..utils import format_time_mmss, find_video_file, find_csv_file
 from .video_controller import VideoController
 from .data_manager import DataManager
 from .plot_manager import PlotManager
@@ -42,6 +45,36 @@ class VideoPlayer(QtWidgets.QMainWindow):
         
         # Initialize controllers and managers
         self.video_controller = VideoController()
+        self.data_manager = DataManager()
+        
+        # Initialize heatmap adapter
+        self.heatmap_adapter = HeatmapAdapter()
+        
+        # UI state
+        self.embedded_video_path: str = ''
+        self.csv_paths: list = []
+        self.heatmap_sync_enabled: bool = True  # Sync heatmap with video (enabled by default)
+        self.base_heatmap_fps: float = 64.0  # Base FPS for heatmap (1.0x speed)
+        
+        # Setup window
+        self.setWindowTitle("GaitScope")
+        self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        
+        # Build UI
+        self._build_ui()
+        
+        # Initialize plot manager after UI is built
+        # Provide optional horizontal legend container to PlotManager
+        self.plot_manager = PlotManager(self.plot_widget, self.gaitrite_plot, getattr(self, 'plot_legend_container', None))
+        
+        # Connect video timer
+        self.video_controller.timer.timeout.connect(self._on_timer)
+        
+        # Connect heatmap signals
+        if self.heatmap_adapter.is_available():
+            self.heatmap_adapter.frame_ready.connect(self.heatmap_widget.update_frame)
+        
+        print("[VideoPlayer] Initialized", flush=True)
     
     def _build_ui(self):
         """Build the user interface."""
@@ -96,6 +129,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
         # Setup keyboard shortcuts
         self._setup_shortcuts()
+
+        print("[VideoPlayer] UI constructed", flush=True)
     
     def _build_video_section(self) -> QtWidgets.QVBoxLayout:
         """
@@ -251,6 +286,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
         self.progress_slider.setMaximum(0)
         self.progress_slider.sliderReleased.connect(self.on_slider_released)
         self.progress_slider.sliderMoved.connect(self.on_slider_moved)
+        self.progress_slider.sliderPressed.connect(self.on_slider_pressed)
         layout.addWidget(self.progress_slider, 8)
         
         # Time label
@@ -324,7 +360,19 @@ class VideoPlayer(QtWidgets.QMainWindow):
             Layout containing heatmap controls
         """
         layout = QtWidgets.QHBoxLayout()
+
+        # Play/Pause button for heatmap (hidden - controlled by main video play button)
+        self.btn_heatmap_play = QtWidgets.QPushButton('▶ Play')
+        self.btn_heatmap_play.clicked.connect(self._toggle_heatmap_play)
+        self.btn_heatmap_play.setEnabled(False)
+        self.btn_heatmap_play.setVisible(False)  # Hide - unified control via video play button
+        layout.addWidget(self.btn_heatmap_play)
+
+        # NOTE: FPS spinbox and "Sync with video" checkbox removed because heatmap will
+        # always be synchronized with the video. Keeping UI minimal.
+
         layout.addStretch()
+
         return layout
     
     def _configure_gaitrite_plot(self):
@@ -415,10 +463,11 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.video_controller.timer.stop()
             self.btn_play.setText('▶ Play')
 
-            # Pause heatmap
+            # Pause heatmap (always synced)
             if self.heatmap_adapter.is_available():
                 if self.heatmap_adapter.worker and self.heatmap_adapter.worker._playing:
                     self.heatmap_adapter.pause()
+                    self.btn_heatmap_play.setText('▶ Play')
         else:
             # Play video
             print(f"[Play] Starting playback from frame {self.video_controller.current_frame}/{self.video_controller.total_frames-1}", flush=True)
@@ -427,17 +476,19 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.video_controller.timer.start(interval)
             self.btn_play.setText('⏸ Pause')
 
-            # Start/resume heatmap
+            # Start/resume heatmap (always synced)
             if self.heatmap_adapter.is_available():
                 if self.heatmap_adapter.worker is None:
                     # Start the heatmap worker
                     self.heatmap_adapter.start()
                     self.heatmap_adapter.resume()
+                    self.btn_heatmap_play.setText('⏸ Pause')
                     # Ensure heatmap is aligned with current video frame
                     self._sync_heatmap_to_video()
                 elif not self.heatmap_adapter.worker._playing:
                     # Resume heatmap
                     self.heatmap_adapter.resume()
+                    self.btn_heatmap_play.setText('⏸ Pause')
                     # Ensure heatmap is aligned with current video frame
                     self._sync_heatmap_to_video()
     
@@ -455,7 +506,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
         if self.heatmap_adapter.is_available():
             if self.heatmap_adapter.worker:
                 self.heatmap_adapter.pause()
-                self.heatmap_adapter.seek(0)
+                self.heatmap_adapter.seek(0)  # Reset to first frame
+                self.btn_heatmap_play.setText('▶ Play')
     
     def next_frame(self):
         """Advance to next frame."""
@@ -512,8 +564,15 @@ class VideoPlayer(QtWidgets.QMainWindow):
         # Check if we're at the last frame BEFORE advancing
         at_last_frame = self.video_controller.current_frame >= self.video_controller.total_frames - 1
         
+        # Debug: log when approaching last frame
+        if self.video_controller.current_frame >= self.video_controller.total_frames - 5:
+            print(f"[Timer] Frame {self.video_controller.current_frame}/{self.video_controller.total_frames-1}, at_last={at_last_frame}", flush=True)
+        
         if at_last_frame:
             # Already at last frame, update cursor one final time before stopping
+            print(f"[Timer] Reached last frame ({self.video_controller.current_frame}), updating cursor and stopping", flush=True)
+            
+            # Update cursor to final position
             self._update_csv_cursor_from_video()
             self.progress_slider.setValue(self.video_controller.current_frame)
             self.update_time_label()
@@ -527,6 +586,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
             if self.heatmap_adapter.is_available():
                 if self.heatmap_adapter.worker and self.heatmap_adapter.worker._playing:
                     self.heatmap_adapter.pause()
+                    self.btn_heatmap_play.setText('▶ Play')
             return
         
         # Advance to next frame
@@ -542,6 +602,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
             if self.heatmap_adapter.is_available():
                 if self.heatmap_adapter.worker and self.heatmap_adapter.worker._playing:
                     self.heatmap_adapter.pause()
+                    self.btn_heatmap_play.setText('▶ Play')
             return
 
         # Display frame and update UI
@@ -549,6 +610,38 @@ class VideoPlayer(QtWidgets.QMainWindow):
         self._update_csv_cursor_from_video()
         self.progress_slider.setValue(self.video_controller.current_frame)
         self.update_time_label()
+    
+    # ==================== Heatmap Control Methods ====================
+    
+    def _toggle_heatmap_play(self):
+        """Toggle heatmap animation play/pause."""
+        print("[VideoPlayer] _toggle_heatmap_play called", flush=True)
+
+        if not self.heatmap_adapter.is_available():
+            print("[VideoPlayer] Heatmap adapter not available", flush=True)
+            return
+
+        # Check if we have worker running
+        if self.heatmap_adapter.worker is None:
+            print("[VideoPlayer] Starting heatmap adapter (no worker)...", flush=True)
+            # Start the adapter
+            self.heatmap_adapter.start()
+            self.heatmap_adapter.resume()
+            self.btn_heatmap_play.setText('⏸ Pause')
+            # Keep heatmap synced with video when starting via this control
+            self._sync_heatmap_to_video()
+        elif self.heatmap_adapter.worker._playing:
+            print("[VideoPlayer] Pausing heatmap...", flush=True)
+            # Pause
+            self.heatmap_adapter.pause()
+            self.btn_heatmap_play.setText('▶ Play')
+        else:
+            print("[VideoPlayer] Resuming heatmap...", flush=True)
+            # Resume
+            self.heatmap_adapter.resume()
+            self.btn_heatmap_play.setText('⏸ Pause')
+            # Keep heatmap synced with video when resuming via this control
+            self._sync_heatmap_to_video()
     
     # ==================== Display Methods ====================
     
@@ -613,6 +706,10 @@ class VideoPlayer(QtWidgets.QMainWindow):
         )
     
     # ==================== Slider Event Handlers ====================
+    
+    def on_slider_pressed(self):
+        """Mark start of slider drag."""
+        pass  # Placeholder for drag state if needed
     
     def on_slider_moved(self, val: int):
         """
@@ -681,6 +778,9 @@ class VideoPlayer(QtWidgets.QMainWindow):
     
     def load_csvs(self):
         """Load and plot CSV data files."""
+        print("[VideoPlayer] Loading CSV data", flush=True)
+        # DEBUG: show current csv_paths
+        print(f"[VideoPlayer] csv_paths: {getattr(self, 'csv_paths', None)}", flush=True)
 
         # Find L.csv
         csv_L = None
@@ -782,16 +882,21 @@ class VideoPlayer(QtWidgets.QMainWindow):
                 heatmap_data['right_seq']
             )
             
+            # Enable heatmap controls
+            self.btn_heatmap_play.setEnabled(True)
+            
             # Show initial frame immediately
             self.heatmap_adapter.show_initial_frame()
             
-            # Sync to current video position
-            self._sync_heatmap_to_video()
+            # If sync is enabled (default), sync to current video position
+            if self.heatmap_sync_enabled:
+                self._sync_heatmap_to_video()
             
             total_frames = self.heatmap_adapter.get_total_frames()
             print(f"[VideoPlayer] Heatmap data loaded: {total_frames} frames", flush=True)
         else:
             print("[VideoPlayer] No heatmap data available", flush=True)
+            self.btn_heatmap_play.setEnabled(False)
     
     # ==================== CSV Cursor Synchronization ====================
     
@@ -837,19 +942,27 @@ class VideoPlayer(QtWidgets.QMainWindow):
         if at_last_video_frame:
             # Use video duration as the cursor position when at the last frame
             csv_time = self.video_controller.get_duration_seconds()
+            print(f"[VideoPlayer] At last video frame, setting cursor to video duration: {csv_time:.6f}s", flush=True)
+
+        # Debug logging for last frame sync
+        if self.video_controller.current_frame >= self.video_controller.total_frames - 5:
+            video_duration = self.video_controller.get_duration_seconds()
+            print(f"[VideoPlayer] Frame {self.video_controller.current_frame}/{self.video_controller.total_frames-1}, csv_idx={csv_idx}/{self.data_manager.csv_len-1}, csv_time={csv_time:.6f}, video_dur={video_duration:.6f}, at_last={at_last_video_frame}", flush=True)
 
         # Update cursor position (vertical yellow line)
+        # When at last video frame, we pass the video duration as csv_time
         self.plot_manager.update_cursor_position(
             csv_time,
             self.data_manager.sums_L,
             self.data_manager.sums_R,
             csv_idx,
             self.data_manager.csv_len,
-            at_last_video_frame
+            at_last_video_frame  # Pass flag to force end position
         )
         
-        # Sync heatmap with video
-        self._sync_heatmap_to_video()
+        # Sync heatmap if enabled
+        if self.heatmap_sync_enabled:
+            self._sync_heatmap_to_video()
 
         # Update markers and connecting segment
         self.plot_manager.update_markers(
@@ -1064,6 +1177,9 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
     def on_load_dataset_clicked(self):
         """Handle Load Dataset button click: load CSVs, gaitrite data and embedded video if present."""
+        print("[VideoPlayer] on_load_dataset_clicked called", flush=True)
+        print(f"[VideoPlayer] current csv_paths={getattr(self, 'csv_paths', None)}", flush=True)
+
         if not getattr(self, 'csv_paths', None):
             QtWidgets.QMessageBox.warning(self, 'Warning', 'No CSV selected')
             return

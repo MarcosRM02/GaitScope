@@ -36,8 +36,13 @@ class VideoController:
         self._seeking: bool = False
         self._fast_seek_lock: bool = False
         
+        # Drag seek throttling
+        self._last_drag_seek_time: float = 0.0
+        self._drag_seek_interval: float = 1.0 / 10.0  # Max 10 seeks/sec during drag
+        
         # Timer for playback
         self.timer = QtCore.QTimer()
+        self._last_timer_time: float = 0.0
         
     def load_video(self, path: str) -> bool:
         """
@@ -90,6 +95,17 @@ class VideoController:
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
+    
+    def read_frame(self) -> tuple:
+        """
+        Read the current frame from video.
+        
+        Returns:
+            Tuple of (success, frame_data)
+        """
+        if not self.video_cap:
+            return False, None
+        return self.video_cap.read()
     
     def seek_to_frame(self, frame_number: int) -> tuple:
         """
