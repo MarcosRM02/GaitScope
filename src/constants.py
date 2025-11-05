@@ -1,5 +1,5 @@
 """
-Constants used throughout the Video Gait Analyzer application.
+Constants used throughout the Video GaitScope application.
 
 This module contains all constant values used for configuration,
 including GaitRite carpet dimensions, sampling rates, and UI defaults.
@@ -17,19 +17,11 @@ DEFAULT_NUMBER_OF_GROUPS = 4
 DEFAULT_MAX_COLUMNS = 32
 
 # Plot visualization constants
-DEFAULT_PLOT_WINDOW_SECONDS = 5.0
 DEFAULT_R_OFFSET = 80000.0  # Offset for right-side data visualization
 PLOT_UPDATE_INTERVAL = 1.0 / 20.0  # 20 Hz update rate for plot markers
 
-# Video playback constants
-DEFAULT_FPS = 30.0
-DEFAULT_TIMER_INTERVAL = 33  # milliseconds (approximately 30 fps)
-
 # Playback speed options (multipliers)
 PLAYBACK_SPEED_OPTIONS = [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0]
-
-# Slider interaction constants
-DRAG_SEEK_INTERVAL = 1.0 / 10.0  # Maximum 10 seeks per second during dragging
 
 # GaitRite conversion factor
 GAITRITE_CONVERSION_FACTOR = 1.27  # Conversion factor for GaitRite units to cm

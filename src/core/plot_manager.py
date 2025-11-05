@@ -11,7 +11,7 @@ Handles all plotting and visualization operations including:
 import time
 import numpy as np
 import pandas as pd
-from typing import Optional, List, Tuple
+from typing import Optional, List
 from PyQt6 import QtCore, QtWidgets, QtGui
 import pyqtgraph as pg
 
@@ -592,6 +592,15 @@ class PlotManager:
         if not drew_any:
             self._auto_adjust_gaitrite_view()
     
+    def draw_gaitrite_carpet(self):
+        """
+        Draw just the carpet background without any footprints.
+        Clears the plot and draws only the carpet outline.
+        """
+        self.gaitrite_plot.clear()
+        self._draw_carpet_background()
+        self._auto_adjust_gaitrite_view()
+    
     def _draw_carpet_background(self):
         """
         Draw the GaitRite carpet background rectangle.
@@ -794,13 +803,6 @@ class PlotManager:
         except Exception as e:
             print(f"[PlotManager] Error adjusting view: {e}", flush=True)
     
-    def set_marker_group_L(self, group_index: int):
-        """Set the group index for left marker."""
-        self.marker_group_index_L = group_index
-    
-    def set_marker_group_R(self, group_index: int):
-        """Set the group index for right marker."""
-        self.marker_group_index_R = group_index
     
     def _set_optimal_y_range(self, sums_L: List[np.ndarray], sums_R: List[np.ndarray]):
         """

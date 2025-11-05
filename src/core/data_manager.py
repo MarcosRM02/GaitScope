@@ -557,26 +557,4 @@ class DataManager:
         
         return idx
     
-    def get_total_csv_duration_seconds(self) -> float:
-        """
-        Get the total duration of CSV data in seconds.
-        This represents the time from the first sample (index 0) to the last sample (index csv_len-1).
-        
-        Returns:
-            Duration in seconds
-        """
-        if self.csv_len <= 1 or self.csv_sampling_rate <= 0:
-            return 0.0
-        
-        # Duration is (number of samples - 1) / sampling rate
-        # This matches how video duration is calculated: (total_frames - 1) / fps
-        return float(self.csv_len - 1) / float(self.csv_sampling_rate)
-    
-    def clear_data(self):
-        """Clear all loaded data."""
-        self.sums_L = None
-        self.sums_R = None
-        self.csv_len = 0
-        self.gaitrite_df = None
-        self.footprints_left_df = None
-        self.footprints_right_df = None
+
