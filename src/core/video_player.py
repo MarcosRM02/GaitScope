@@ -181,7 +181,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
         layout.addWidget(self.btn_play)
 
         # Reset button
-        self.btn_stop = QtWidgets.QPushButton('⏹ Reset')
+        self.btn_stop = QtWidgets.QPushButton('⟳ Reset')
         self.btn_stop.clicked.connect(self.stop)
         layout.addWidget(self.btn_stop)
         
