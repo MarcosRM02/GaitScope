@@ -522,7 +522,7 @@ class DataManager:
         if self.csv_len <= 0 or self.csv_sampling_rate <= 0:
             return np.array([0.0])
         
-        return np.arange(self.csv_len) / self.csv_sampling_rate
+        return np.arange(self.csv_len, dtype=float) / float(self.csv_sampling_rate)
     
     def video_frame_to_csv_index(self, video_frame: int, video_fps: float, video_total_frames: int = None) -> int:
         """
@@ -542,21 +542,35 @@ class DataManager:
         if video_fps <= 0 or self.csv_sampling_rate <= 0 or self.csv_len <= 0:
             return 0
         
-        # If total frames provided, use proportional mapping to ensure we reach the end
+        # Always use proportional mapping for consistency
         if video_total_frames is not None and video_total_frames > 1:
             # Proportional mapping: ensures last video frame -> last CSV sample
-            # Using round() instead of int() for better accuracy
-            proportion = float(video_frame) / float(max(1, video_total_frames - 1))
-            idx = round(proportion * float(max(1, self.csv_len - 1)))
+            proportion = float(video_frame) / float(video_total_frames - 1)
+            idx = int(round(proportion * float(self.csv_len - 1)))
         else:
             # Fallback to time-based mapping
             t = float(video_frame) / float(video_fps)
-            idx = round(t * float(self.csv_sampling_rate))
+            idx = int(round(t * float(self.csv_sampling_rate)))
         
         # Clamp to valid range
         idx = max(0, min(idx, self.csv_len - 1))
         
         return idx
+    
+    def get_total_csv_duration_seconds(self) -> float:
+        """
+        Get the total duration of CSV data in seconds.
+        This represents the time from the first sample (index 0) to the last sample (index csv_len-1).
+        
+        Returns:
+            Duration in seconds
+        """
+        if self.csv_len <= 1 or self.csv_sampling_rate <= 0:
+            return 0.0
+        
+        # Duration is (number of samples - 1) / sampling rate
+        # This matches how video duration is calculated: (total_frames - 1) / fps
+        return float(self.csv_len - 1) / float(self.csv_sampling_rate)
     
     def clear_data(self):
         """Clear all loaded data."""

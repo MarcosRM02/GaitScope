@@ -242,12 +242,16 @@ class VideoController:
         """
         Get total video duration in seconds.
         
+        This represents the time from the first frame (frame 0) to the last frame (frame total_frames-1).
+        Calculated as: (total_frames - 1) / fps
+        This matches how CSV duration is calculated: (csv_len - 1) / sampling_rate
+        
         Returns:
             Duration in seconds
         """
-        if self.fps > 0:
-            return self.total_frames / self.fps
-        return 0.0
+        if self.total_frames <= 1 or self.fps <= 0:
+            return 0.0
+        return float(self.total_frames - 1) / float(self.fps)
     
     def get_current_time_seconds(self) -> float:
         """

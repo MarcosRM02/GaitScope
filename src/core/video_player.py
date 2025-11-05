@@ -585,11 +585,19 @@ class VideoPlayer(QtWidgets.QMainWindow):
             print(f"[Timer] Frame {self.video_controller.current_frame}/{self.video_controller.total_frames-1}, at_last={at_last_frame}", flush=True)
         
         if at_last_frame:
-            # Already at last frame, stop playback
-            print(f"[Timer] Reached last frame ({self.video_controller.current_frame}), stopping playback", flush=True)
+            # Already at last frame, update cursor one final time before stopping
+            print(f"[Timer] Reached last frame ({self.video_controller.current_frame}), updating cursor and stopping", flush=True)
+            
+            # Update cursor to final position
+            self._update_csv_cursor_from_video()
+            self.progress_slider.setValue(self.video_controller.current_frame)
+            self.update_time_label()
+            
+            # Now stop playback
             self.video_controller.is_playing = False
             self.video_controller.timer.stop()
             self.btn_play.setText('▶ Play')
+            
             # Pause heatmap as well
             if self.heatmap_adapter.is_available():
                 if self.heatmap_adapter.worker and self.heatmap_adapter.worker._playing:
@@ -766,6 +774,28 @@ class VideoPlayer(QtWidgets.QMainWindow):
         self.progress_slider.setValue(0)
         self.update_time_label()
         self.show_frame()
+        
+        # If CSV data is already loaded, update the plot range to match video duration
+        if self.data_manager.sums_L is not None:
+            self._update_plot_x_range_to_video()
+    
+    def _update_plot_x_range_to_video(self):
+        """Update plot X range to match video duration (minimum of video and CSV)."""
+        if self.data_manager.sums_L is None:
+            return
+        
+        # Get CSV data duration
+        x_data = self.data_manager.get_time_axis()
+        csv_x_max = float(x_data[-1]) if len(x_data) > 0 else 0.0
+        
+        # Get video duration
+        video_duration = self.video_controller.get_duration_seconds()
+        
+        # Use the shorter duration (limit to video length)
+        x_max = min(csv_x_max, video_duration)
+        print(f"[VideoPlayer] Updating plot range: CSV={csv_x_max:.6f}s, Video={video_duration:.6f}s, Using={x_max:.6f}s", flush=True)
+        
+        self.plot_manager.set_plot_x_range(0.0, x_max)
     
     def load_csvs(self):
         """Load and plot CSV data files."""
@@ -806,11 +836,23 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.data_manager.sums_R
         )
 
-        # Set initial X range to full CSV duration so all data is visible
-        total_seconds = float(self.data_manager.csv_len) / float(
-            self.data_manager.csv_sampling_rate
-        ) if self.data_manager.csv_sampling_rate > 0 else float(self.data_manager.csv_len)
-        self.plot_manager.set_plot_x_range(0, total_seconds)
+        # Determine the X range for the plot:
+        # Use the MINIMUM of video duration and CSV data duration
+        # This ensures the plot doesn't extend beyond the video
+        csv_x_max = float(x_data[-1]) if len(x_data) > 0 else 0.0
+        
+        # Get video duration if video is loaded
+        if self.video_controller.video_cap is not None:
+            video_duration = self.video_controller.get_duration_seconds()
+            # Use the shorter duration (limit to video length)
+            x_max = min(csv_x_max, video_duration)
+            print(f"[VideoPlayer] CSV duration: {csv_x_max:.6f}s, Video duration: {video_duration:.6f}s, Using: {x_max:.6f}s", flush=True)
+        else:
+            # No video loaded yet, use CSV duration
+            x_max = csv_x_max
+            print(f"[VideoPlayer] No video loaded, using CSV duration: {x_max:.6f}s", flush=True)
+        
+        self.plot_manager.set_plot_x_range(0.0, x_max)
 
         # Update cursor
         self._update_csv_cursor_from_video()
@@ -908,27 +950,38 @@ class VideoPlayer(QtWidgets.QMainWindow):
             except Exception:
                 csv_idx = 0
 
-        # FORCE last CSV index if we're at the last video frame (covers edge cases)
-        if at_last_video_frame:
-            csv_idx = self.data_manager.csv_len - 1
+        # Get the time axis to ensure we use the EXACT same time values
+        x_data = self.data_manager.get_time_axis()
+        
+        # Get cursor time from the actual time axis array (not recalculated)
+        # This ensures perfect alignment with the plot
+        if csv_idx < len(x_data):
+            csv_time = float(x_data[csv_idx])
+        else:
+            # Fallback calculation if index out of range
+            csv_time = float(csv_idx) / float(self.data_manager.csv_sampling_rate) \
+                if getattr(self.data_manager, 'csv_sampling_rate', 0) > 0 else float(csv_idx)
 
-        # Compute cursor time from CSV index
-        # When at the last CSV sample, ensure cursor is at the exact position of that sample
-        csv_time = float(csv_idx) / float(self.data_manager.csv_sampling_rate) \
-            if getattr(self.data_manager, 'csv_sampling_rate', 0) > 0 else float(csv_idx)
+        # When at last video frame, position cursor at the end of the visible plot range
+        # (which may be limited by video duration, not CSV duration)
+        if at_last_video_frame:
+            # Use video duration as the cursor position when at the last frame
+            csv_time = self.video_controller.get_duration_seconds()
+            print(f"[VideoPlayer] At last video frame, setting cursor to video duration: {csv_time:.6f}s", flush=True)
 
         # Debug logging for last frame sync
         if self.video_controller.current_frame >= self.video_controller.total_frames - 5:
-            print(f"[VideoPlayer] Frame {self.video_controller.current_frame}/{self.video_controller.total_frames}, csv_idx={csv_idx}/{self.data_manager.csv_len}, csv_time={csv_time:.4f}, at_last={at_last_video_frame}", flush=True)
+            video_duration = self.video_controller.get_duration_seconds()
+            print(f"[VideoPlayer] Frame {self.video_controller.current_frame}/{self.video_controller.total_frames-1}, csv_idx={csv_idx}/{self.data_manager.csv_len-1}, csv_time={csv_time:.6f}, video_dur={video_duration:.6f}, at_last={at_last_video_frame}", flush=True)
 
         # Update cursor position (vertical yellow line)
-        # Pass csv_len AND at_last_video_frame so plot_manager can position cursor correctly
+        # When at last video frame, we pass the video duration as csv_time
         self.plot_manager.update_cursor_position(
             csv_time,
             self.data_manager.sums_L,
             self.data_manager.sums_R,
             csv_idx,
-            self.data_manager.csv_len,  # Pass csv_len to detect last sample
+            self.data_manager.csv_len,
             at_last_video_frame  # Pass flag to force end position
         )
         
@@ -937,7 +990,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self._sync_heatmap_to_video()
 
         # Update markers and connecting segment
-        x_data = self.data_manager.get_time_axis()
         self.plot_manager.update_markers(
             csv_idx,
             x_data,

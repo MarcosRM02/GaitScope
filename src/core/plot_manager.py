@@ -243,6 +243,9 @@ class PlotManager:
         # Create cursor segment
         self._create_cursor_segment()
         
+        # Create cursor line (vertical yellow line for time sync)
+        self.create_cursor_line()
+        
         # Set Y range with zoom for better visibility
         self._set_optimal_y_range(sums_L, sums_R)
         
@@ -434,15 +437,16 @@ class PlotManager:
             at_last_video_frame: Flag indicating we're at the last video frame
         """
         if self.cursor_line is not None:
-            # Force cursor to end if either condition is true:
-            # 1. We're at the last video frame (covers all edge cases)
-            # 2. We're at the last CSV sample (double-check)
-            force_to_end = at_last_video_frame or (csv_idx is not None and csv_len is not None and csv_idx >= csv_len - 1)
-            
-            if force_to_end and self._x_max > 0:
-                print(f"[PlotManager] Forcing cursor to end: at_last_frame={at_last_video_frame}, csv_idx={csv_idx}/{csv_len}, x_max={self._x_max:.4f}", flush=True)
+            # When at the last video frame, always position cursor at the end of visible range
+            # This handles cases where video is longer than CSV data
+            if at_last_video_frame and self._x_max > 0:
+                # Position cursor at exact end of visible plot range
                 self.cursor_line.setPos(self._x_max)
             else:
+                # Normal positioning based on provided time
+                # Clamp to valid range to prevent cursor going beyond plot bounds
+                if self._x_max > 0:
+                    time_seconds = max(0.0, min(time_seconds, self._x_max))
                 self.cursor_line.setPos(time_seconds)
     
     def set_plot_x_range(self, x_min: float, x_max: float):
