@@ -293,10 +293,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
         self.time_label = QtWidgets.QLabel('00:00 / 00:00')
         layout.addWidget(self.time_label, 1)
         
-        # Frame label
-        self.frame_label = QtWidgets.QLabel('Frame: 0 / 0')
-        layout.addWidget(self.frame_label, 1)
-        
         return layout
     
     def _build_plot_section(self) -> QtWidgets.QVBoxLayout:
@@ -306,10 +302,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
             Layout containing the CSV plot widget and labels
         """
         layout = QtWidgets.QVBoxLayout()
-
-        # CSV index label
-        self.csv_index_label = QtWidgets.QLabel('CSV: - / -')
-        layout.addWidget(self.csv_index_label, 0)
 
         # Horizontal legend container to be populated by PlotManager (placed above plot)
         self.plot_legend_container = QtWidgets.QWidget()
@@ -349,14 +341,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
             Layout containing the heatmap widget and controls
         """
         layout = QtWidgets.QVBoxLayout()
-        
-        # Heatmap controls and info
-        heatmap_header = QtWidgets.QHBoxLayout()
-        self.heatmap_label = QtWidgets.QLabel('Heatmap: Ready')
-        heatmap_header.addWidget(self.heatmap_label)
-        heatmap_header.addStretch()
-        
-        layout.addLayout(heatmap_header, 0)
         
         # Heatmap display widget
         self.heatmap_widget = HeatmapWidget()
@@ -709,10 +693,9 @@ class VideoPlayer(QtWidgets.QMainWindow):
                 pass
     
     def update_time_label(self):
-        """Update time and frame labels."""
+        """Update time label."""
         if not self.video_controller.video_cap or self.video_controller.fps == 0:
             self.time_label.setText('00:00 / 00:00')
-            self.frame_label.setText('Frame: 0 / 0')
             return
         
         current_time = self.video_controller.get_current_time_seconds()
@@ -720,10 +703,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
         
         self.time_label.setText(
             f"{format_time_mmss(current_time)} / {format_time_mmss(total_time)}"
-        )
-        self.frame_label.setText(
-            f"Frame: {self.video_controller.current_frame} / "
-            f"{max(0, self.video_controller.total_frames - 1)}"
         )
     
     # ==================== Slider Event Handlers ====================
@@ -906,10 +885,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
             # Enable heatmap controls
             self.btn_heatmap_play.setEnabled(True)
             
-            # Update label
-            total_frames = self.heatmap_adapter.get_total_frames()
-            self.heatmap_label.setText(f'Heatmap: {total_frames} frames loaded')
-            
             # Show initial frame immediately
             self.heatmap_adapter.show_initial_frame()
             
@@ -917,11 +892,11 @@ class VideoPlayer(QtWidgets.QMainWindow):
             if self.heatmap_sync_enabled:
                 self._sync_heatmap_to_video()
             
+            total_frames = self.heatmap_adapter.get_total_frames()
             print(f"[VideoPlayer] Heatmap data loaded: {total_frames} frames", flush=True)
         else:
             print("[VideoPlayer] No heatmap data available", flush=True)
             self.btn_heatmap_play.setEnabled(False)
-            self.heatmap_label.setText('Heatmap: No data')
     
     # ==================== CSV Cursor Synchronization ====================
     
@@ -995,13 +970,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
             x_data,
             self.data_manager.sums_L,
             self.data_manager.sums_R
-        )
-
-        # Update label
-        total_idx = self.data_manager.csv_len - 1 if getattr(self.data_manager, 'csv_len', 0) > 0 else 0
-        time_str = format_time_mmss(csv_time)
-        self.csv_index_label.setText(
-            f'CSV idx: {csv_idx} / {total_idx}   t={time_str}'
         )
 
     def _sync_heatmap_to_video(self):
