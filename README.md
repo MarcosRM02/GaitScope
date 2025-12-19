@@ -127,9 +127,11 @@ This restores the system Python in the current terminal session.
   - `heatmap_generation/` — Heatmap generation and animation code
   - `utils/` — Utilities (file management, Qt configuration helpers, etc.)
   - `widgets/` — Custom UI components
+  - `algorithms/` — Algorithms for gait detection and more
+    - `export_yarray_footprints.py` — Helper script to export footprints
+    - `RAMP.py` — Algortitm for gait events detection
 - `data/` — Example data organized by participant
 - `pyproject.toml` — Package configuration and dependencies
-- `export_yarray_footprints.py` — Helper script to export footprints
 
 ---
 
