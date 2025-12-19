@@ -299,7 +299,7 @@ class DataManager:
             
             # Try to import decoder function
             try:
-                from export_yarray_footprints import decode_yarray_to_xy
+                from src.algorithms.export_yarray_footprints import decode_yarray_to_xy
             except Exception:
                 decode_yarray_to_xy = None
             
@@ -601,7 +601,7 @@ class DataManager:
         print(f"[DataManager] raw_data_R shape: {self.raw_data_R.shape if self.raw_data_R is not None else 'None'}", flush=True)
         
         try:
-            from ..RAMP import Ramp
+            from ..algorithms.RAMP import Ramp
             print(f"[DataManager] RAMP imported successfully", flush=True)
         except Exception as e:
             print(f"[DataManager] Failed to import RAMP: {e}", flush=True)

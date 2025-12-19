@@ -1089,6 +1089,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
             base_dir = os.path.abspath(os.path.dirname(__file__))
             # Go up to package root
             base_dir = os.path.dirname(os.path.dirname(base_dir))
+            # Go up one more level to read data from parent folder
+            base_dir = os.path.dirname(base_dir)
             data_dir = os.path.join(base_dir, 'data')
             
             self.combo_subject.clear()
