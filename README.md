@@ -14,7 +14,6 @@ GaitScope is a desktop application for playing videos synchronized with gait ana
 - [Run the application](#run-the-application)
 - [Deactivate the virtual environment](#deactivate-the-virtual-environment)
 - [Project structure](#project-structure)
-- [Contributing](#contributing)
 - [License](#license)
 
 ---
