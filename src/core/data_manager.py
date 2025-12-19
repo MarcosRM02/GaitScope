@@ -51,6 +51,10 @@ class DataManager:
         self.footprints_left_df: Optional[pd.DataFrame] = None
         self.footprints_right_df: Optional[pd.DataFrame] = None
         
+        # Gait events detected by RAMP algorithm
+        self.gait_events_L: Optional[dict] = None  # {'heel_strikes': [...], 'toe_offs': [...]}
+        self.gait_events_R: Optional[dict] = None  # {'heel_strikes': [...], 'toe_offs': [...]}
+        
         # Load sensor coordinates once at initialization
         self._load_global_sensor_coordinates()
         
@@ -580,3 +584,81 @@ class DataManager:
         self.gaitrite_df = None
         self.footprints_left_df = None
         self.footprints_right_df = None
+        self.raw_data_L = None
+        self.raw_data_R = None
+        self.gait_events_L = None
+        self.gait_events_R = None
+    
+    def detect_gait_events(self) -> bool:
+        """
+        Detect gait events (Heel Strikes and Toe Offs) using RAMP algorithm.
+        
+        Returns:
+            True if events were detected successfully, False otherwise
+        """
+        print(f"[DataManager] Starting gait event detection...", flush=True)
+        print(f"[DataManager] raw_data_L shape: {self.raw_data_L.shape if self.raw_data_L is not None else 'None'}", flush=True)
+        print(f"[DataManager] raw_data_R shape: {self.raw_data_R.shape if self.raw_data_R is not None else 'None'}", flush=True)
+        
+        try:
+            from ..RAMP import Ramp
+            print(f"[DataManager] RAMP imported successfully", flush=True)
+        except Exception as e:
+            print(f"[DataManager] Failed to import RAMP: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            return False
+        
+        # Initialize RAMP detector
+        try:
+            detector = Ramp(sampling_rate=self.csv_sampling_rate)
+            print(f"[DataManager] RAMP detector initialized with sampling_rate={self.csv_sampling_rate}", flush=True)
+        except Exception as e:
+            print(f"[DataManager] Failed to initialize RAMP: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            return False
+        
+        # Detect events for left foot
+        if self.raw_data_L is not None:
+            print(f"[DataManager] Processing left foot with {self.raw_data_L.shape[1]} columns", flush=True)
+            if self.raw_data_L.shape[1] >= 32:
+                try:
+                    pressure_data_L = self.raw_data_L.iloc[:, :32].fillna(0).to_numpy()
+                    heel_strikes_L, toe_offs_L = detector.detect(pressure_data_L, foot='left')
+                    self.gait_events_L = {
+                        'heel_strikes': heel_strikes_L,
+                        'toe_offs': toe_offs_L
+                    }
+                    print(f"[DataManager] Detected {len(heel_strikes_L)} HS and {len(toe_offs_L)} TO for left foot", flush=True)
+                except Exception as e:
+                    print(f"[DataManager] Error detecting left foot events: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
+                    self.gait_events_L = None
+            else:
+                print(f"[DataManager] Left foot has only {self.raw_data_L.shape[1]} columns, need 32", flush=True)
+        
+        # Detect events for right foot
+        if self.raw_data_R is not None:
+            print(f"[DataManager] Processing right foot with {self.raw_data_R.shape[1]} columns", flush=True)
+            if self.raw_data_R.shape[1] >= 32:
+                try:
+                    pressure_data_R = self.raw_data_R.iloc[:, :32].fillna(0).to_numpy()
+                    heel_strikes_R, toe_offs_R = detector.detect(pressure_data_R, foot='right')
+                    self.gait_events_R = {
+                        'heel_strikes': heel_strikes_R,
+                        'toe_offs': toe_offs_R
+                    }
+                    print(f"[DataManager] Detected {len(heel_strikes_R)} HS and {len(toe_offs_R)} TO for right foot", flush=True)
+                except Exception as e:
+                    print(f"[DataManager] Error detecting right foot events: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
+                    self.gait_events_R = None
+            else:
+                print(f"[DataManager] Right foot has only {self.raw_data_R.shape[1]} columns, need 32", flush=True)
+        
+        success = (self.gait_events_L is not None) or (self.gait_events_R is not None)
+        print(f"[DataManager] Gait event detection completed. Success: {success}", flush=True)
+        return success

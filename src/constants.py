@@ -79,3 +79,9 @@ RIGHT_MIDFOOT_INDICES = [0, 1, 3, 6]
 RIGHT_HINDFOOT_INDICES = [2, 16, 17, 18, 19, 20, 21, 22, 23]
 SENSOR_GROUP_LABELS = ['Forefoot', 'Midfoot', 'Hindfoot']
 
+# Gait event marker colors and labels
+GAIT_EVENT_HEEL_STRIKE_COLOR = '#FF6B00'  # Orange (distinct from existing colors)
+GAIT_EVENT_TOE_OFF_COLOR = '#9C27B0'  # Purple (distinct from existing colors)
+GAIT_EVENT_HEEL_STRIKE_LABEL = 'HS'  # Heel Strike
+GAIT_EVENT_TOE_OFF_LABEL = 'TO'  # Toe Off
+

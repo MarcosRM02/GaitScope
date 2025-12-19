@@ -271,14 +271,17 @@ class VideoPlayer(QtWidgets.QMainWindow):
         except Exception:
             pass
     
-    def _build_progress_section(self) -> QtWidgets.QHBoxLayout:
+    def _build_progress_section(self) -> QtWidgets.QVBoxLayout:
         """
-        Build the progress slider and time labels section.
+        Build the progress slider, time labels, and gait events checkbox section.
         
         Returns:
-            Layout containing progress controls
+            Layout containing progress controls and checkbox
         """
-        layout = QtWidgets.QHBoxLayout()
+        layout = QtWidgets.QVBoxLayout()
+        
+        # First row: Progress slider and time label
+        progress_layout = QtWidgets.QHBoxLayout()
         
         # Progress slider
         self.progress_slider = ClickableSlider(QtCore.Qt.Orientation.Horizontal)
@@ -287,11 +290,43 @@ class VideoPlayer(QtWidgets.QMainWindow):
         self.progress_slider.sliderReleased.connect(self.on_slider_released)
         self.progress_slider.sliderMoved.connect(self.on_slider_moved)
         self.progress_slider.sliderPressed.connect(self.on_slider_pressed)
-        layout.addWidget(self.progress_slider, 8)
+        progress_layout.addWidget(self.progress_slider, 8)
         
         # Time label
         self.time_label = QtWidgets.QLabel('00:00 / 00:00')
-        layout.addWidget(self.time_label, 1)
+        progress_layout.addWidget(self.time_label, 1)
+        
+        layout.addLayout(progress_layout)
+        
+        # Second row: Color legends and gait events checkbox
+        legends_and_checkbox_layout = QtWidgets.QHBoxLayout()
+        
+        # Horizontal legend container to be populated by PlotManager
+        self.plot_legend_container = QtWidgets.QWidget()
+        try:
+            self.plot_legend_container.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Fixed)
+            hl = QtWidgets.QHBoxLayout(self.plot_legend_container)
+            hl.setContentsMargins(4, 2, 4, 2)
+            hl.setSpacing(12)
+        except Exception:
+            # ensure we at least have a layout
+            try:
+                self.plot_legend_container.setLayout(QtWidgets.QHBoxLayout())
+            except Exception:
+                pass
+        legends_and_checkbox_layout.addWidget(self.plot_legend_container)
+        
+        # Add stretch between legends and checkbox
+        legends_and_checkbox_layout.addStretch()
+        
+        # Gait events checkbox
+        self.chk_show_gait_events = QtWidgets.QCheckBox('Show Gait Events')
+        self.chk_show_gait_events.setToolTip('Display Heel Strike (HS) and Toe Off (TO) events detected by RAMP algorithm')
+        self.chk_show_gait_events.stateChanged.connect(self._on_gait_events_checkbox_changed)
+        self.chk_show_gait_events.setEnabled(False)  # Disabled until events are detected
+        legends_and_checkbox_layout.addWidget(self.chk_show_gait_events)
+        
+        layout.addLayout(legends_and_checkbox_layout)
         
         return layout
     
@@ -302,21 +337,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
             Layout containing the CSV plot widget and labels
         """
         layout = QtWidgets.QVBoxLayout()
-
-        # Horizontal legend container to be populated by PlotManager (placed above plot)
-        self.plot_legend_container = QtWidgets.QWidget()
-        try:
-            self.plot_legend_container.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
-            hl = QtWidgets.QHBoxLayout(self.plot_legend_container)
-            hl.setContentsMargins(4, 2, 4, 2)
-            hl.setSpacing(12)
-        except Exception:
-            # ensure we at least have a layout
-            try:
-                self.plot_legend_container.setLayout(QtWidgets.QHBoxLayout())
-            except Exception:
-                pass
-        layout.addWidget(self.plot_legend_container, 0)
 
         # CSV data plot
         self.time_axis = TimeAxis(orientation='bottom')
@@ -730,6 +750,52 @@ class VideoPlayer(QtWidgets.QMainWindow):
         val = self.progress_slider.value()
         self.seek_to_frame(val)
     
+    def _on_gait_events_checkbox_changed(self, state):
+        """
+        Handle gait events checkbox state change.
+        
+        Args:
+            state: Qt.CheckState value (Checked or Unchecked)
+        """
+        print(f"[VideoPlayer] Checkbox state changed: {state}", flush=True)
+        
+        # state is an int: 0 = Unchecked, 2 = Checked
+        show_events = (state == 2)
+        
+        print(f"[VideoPlayer] show_events: {show_events}", flush=True)
+        print(f"[VideoPlayer] gait_events_L: {self.data_manager.gait_events_L is not None}", flush=True)
+        print(f"[VideoPlayer] gait_events_R: {self.data_manager.gait_events_R is not None}", flush=True)
+        
+        if show_events:
+            # Draw gait events on the plot
+            if self.data_manager.gait_events_L or self.data_manager.gait_events_R:
+                try:
+                    self.plot_manager.draw_gait_events(
+                        self.data_manager.gait_events_L,
+                        self.data_manager.gait_events_R,
+                        self.data_manager.csv_sampling_rate
+                    )
+                    # Update legend to include event colors
+                    self.plot_manager.update_legend_with_events(True)
+                    print("[VideoPlayer] Showing gait events", flush=True)
+                except Exception as e:
+                    print(f"[VideoPlayer] Error drawing gait events: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print("[VideoPlayer] No gait events to show", flush=True)
+        else:
+            # Hide gait events
+            try:
+                self.plot_manager.clear_gait_events()
+                # Update legend to remove event colors
+                self.plot_manager.update_legend_with_events(False)
+                print("[VideoPlayer] Hiding gait events", flush=True)
+            except Exception as e:
+                print(f"[VideoPlayer] Error clearing gait events: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
+    
     # ==================== Data Loading Methods ====================
     
     def load_video(self, path: str):
@@ -814,6 +880,23 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.data_manager.sums_L,
             self.data_manager.sums_R
         )
+
+        # Detect gait events using RAMP algorithm
+        print("[VideoPlayer] About to detect gait events...", flush=True)
+        try:
+            result = self.data_manager.detect_gait_events()
+            print(f"[VideoPlayer] detect_gait_events returned: {result}", flush=True)
+            if result:
+                self.chk_show_gait_events.setEnabled(True)
+                print("[VideoPlayer] Gait events detected, checkbox enabled", flush=True)
+            else:
+                self.chk_show_gait_events.setEnabled(False)
+                print("[VideoPlayer] No gait events detected", flush=True)
+        except Exception as e:
+            print(f"[VideoPlayer] Error detecting gait events: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            self.chk_show_gait_events.setEnabled(False)
 
         # Determine the X range for the plot:
         # Use the MINIMUM of video duration and CSV data duration

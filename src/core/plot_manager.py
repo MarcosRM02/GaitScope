@@ -70,6 +70,14 @@ class PlotManager:
         self.gaitrite_trajectory_item: Optional[pg.PlotDataItem] = None
         self.gaitrite_footprint_items: List = []
         
+        # Gait event markers
+        self.gait_event_lines: List = []  # List of InfiniteLine items for event markers
+        self.gait_events_visible: bool = False  # Track visibility state
+        
+        # Store data for event Y-range calculation
+        self.sums_L_data: Optional[List[np.ndarray]] = None
+        self.sums_R_data: Optional[List[np.ndarray]] = None
+        
         # Configuration
         self.r_offset: float = DEFAULT_R_OFFSET
         self.marker_group_index_L: int = 0
@@ -98,6 +106,10 @@ class PlotManager:
         """
         if r_offset is not None:
             self.r_offset = r_offset
+        
+        # Store data for event Y-range calculation
+        self.sums_L_data = sums_L
+        self.sums_R_data = sums_R
         
         # Clear the plot widget and drop references to any old plot items so
         # they will be recreated and re-added to the new plot scene. This
@@ -833,3 +845,204 @@ class PlotManager:
                 print(f"[PlotManager] Set Y range: {y_min - padding:.1f} to {y_max + padding:.1f}", flush=True)
         except Exception as e:
             print(f"[PlotManager] Error setting Y range: {e}", flush=True)
+    
+    def draw_gait_events(self, gait_events_L: dict, gait_events_R: dict, sampling_rate: float):
+        """
+        Draw gait event markers on the plot.
+        
+        Args:
+            gait_events_L: Dictionary with 'heel_strikes' and 'toe_offs' lists for left foot
+            gait_events_R: Dictionary with 'heel_strikes' and 'toe_offs' lists for right foot
+            sampling_rate: Sampling rate in Hz to convert indices to time
+        """
+        from ..constants import (
+            GAIT_EVENT_HEEL_STRIKE_COLOR,
+            GAIT_EVENT_TOE_OFF_COLOR,
+            GAIT_EVENT_HEEL_STRIKE_LABEL,
+            GAIT_EVENT_TOE_OFF_LABEL
+        )
+        
+        # Clear existing event markers
+        self.clear_gait_events()
+        
+        # Calculate Y ranges for L and R data
+        y_min_L, y_max_L = self._get_y_range_for_data(self.sums_L_data, 0)  # L without offset
+        y_min_R, y_max_R = self._get_y_range_for_data(self.sums_R_data, -self.r_offset)  # R with offset
+        
+        # Helper function to add event markers with limited Y range
+        def add_event_markers(events: list, color: str, label: str, foot: str):
+            # Determine Y range based on foot
+            if foot == 'L':
+                y_min, y_max = y_min_L, y_max_L
+            else:  # foot == 'R'
+                y_min, y_max = y_min_R, y_max_R
+            
+            for idx in events:
+                # Convert sample index to time
+                time_sec = idx / sampling_rate
+                
+                # Create vertical line segment limited to data range
+                line = pg.PlotDataItem(
+                    [time_sec, time_sec],
+                    [y_min, y_max],
+                    pen=pg.mkPen(color, width=2, style=QtCore.Qt.PenStyle.DashLine)
+                )
+                
+                # Add label using TextItem
+                text_label = pg.TextItem(
+                    text=f"{label} ({foot})",
+                    color=color,
+                    anchor=(0.5, 1.0)  # Center horizontally, bottom of text at line top
+                )
+                
+                # Position label at top of data range
+                text_label.setPos(time_sec, y_max)
+                
+                # Set Z-value to appear above data but below cursor
+                try:
+                    line.setZValue(5)
+                    text_label.setZValue(5)
+                except Exception:
+                    pass
+                
+                self.plot_widget.addItem(line)
+                self.plot_widget.addItem(text_label)
+                
+                # Store references
+                self.gait_event_lines.append(line)
+                self.gait_event_lines.append(text_label)
+        
+        # Draw left foot events
+        if gait_events_L:
+            if 'heel_strikes' in gait_events_L:
+                add_event_markers(
+                    gait_events_L['heel_strikes'],
+                    GAIT_EVENT_HEEL_STRIKE_COLOR,
+                    GAIT_EVENT_HEEL_STRIKE_LABEL,
+                    'L'
+                )
+            if 'toe_offs' in gait_events_L:
+                add_event_markers(
+                    gait_events_L['toe_offs'],
+                    GAIT_EVENT_TOE_OFF_COLOR,
+                    GAIT_EVENT_TOE_OFF_LABEL,
+                    'L'
+                )
+        
+        # Draw right foot events
+        if gait_events_R:
+            if 'heel_strikes' in gait_events_R:
+                add_event_markers(
+                    gait_events_R['heel_strikes'],
+                    GAIT_EVENT_HEEL_STRIKE_COLOR,
+                    GAIT_EVENT_HEEL_STRIKE_LABEL,
+                    'R'
+                )
+            if 'toe_offs' in gait_events_R:
+                add_event_markers(
+                    gait_events_R['toe_offs'],
+                    GAIT_EVENT_TOE_OFF_COLOR,
+                    GAIT_EVENT_TOE_OFF_LABEL,
+                    'R'
+                )
+        
+        self.gait_events_visible = True
+        print(f"[PlotManager] Drew gait event markers", flush=True)
+    
+    def clear_gait_events(self):
+        """Remove all gait event markers from the plot."""
+        for item in self.gait_event_lines:
+            try:
+                self.plot_widget.removeItem(item)
+            except Exception:
+                pass
+        self.gait_event_lines.clear()
+        self.gait_events_visible = False
+    
+    def toggle_gait_events(self, visible: bool):
+        """
+        Show or hide gait event markers.
+        
+        Args:
+            visible: True to show, False to hide
+        """
+        for item in self.gait_event_lines:
+            try:
+                item.setVisible(visible)
+            except Exception:
+                pass
+        self.gait_events_visible = visible
+    
+    def _get_y_range_for_data(self, sums_data: Optional[List[np.ndarray]], offset: float = 0) -> tuple[float, float]:
+        """
+        Calculate Y range for a set of data arrays.
+        
+        Args:
+            sums_data: List of data arrays
+            offset: Y offset to apply
+        
+        Returns:
+            (y_min, y_max) tuple
+        """
+        if not sums_data:
+            return (0, 0)
+        
+        try:
+            all_values = []
+            for arr in sums_data:
+                all_values.extend((arr + offset).flatten())
+            
+            if all_values:
+                return (float(np.min(all_values)), float(np.max(all_values)))
+        except Exception:
+            pass
+        
+        return (0, 0)
+    
+    def update_legend_with_events(self, show_events: bool):
+        """
+        Update the horizontal legend to include event colors when events are shown.
+        
+        Args:
+            show_events: Whether to include event colors in legend
+        """
+        if self.legend_container is None:
+            return
+        
+        try:
+            from ..constants import (
+                GAIT_EVENT_HEEL_STRIKE_COLOR,
+                GAIT_EVENT_TOE_OFF_COLOR,
+                GAIT_EVENT_HEEL_STRIKE_LABEL,
+                GAIT_EVENT_TOE_OFF_LABEL
+            )
+            
+            # Build base labels and colors
+            labels = []
+            colors = []
+            
+            # Add data plot colors
+            from ..constants import PLOT_COLORS, SENSOR_GROUP_LABELS
+            try:
+                if len(self.plot_items_L) == 3:
+                    group_labels = SENSOR_GROUP_LABELS
+                else:
+                    group_labels = [f'Group {i+1}' for i in range(len(self.plot_items_L))]
+            except Exception:
+                group_labels = [f'Group {i+1}' for i in range(len(self.plot_items_L))]
+            
+            for idx in range(len(self.plot_items_L)):
+                labels.append(f'L {group_labels[idx]}' if idx < len(group_labels) else f'L Group {idx+1}')
+                colors.append(pg.mkColor(PLOT_COLORS[idx % len(PLOT_COLORS)]))
+            for idx in range(len(self.plot_items_R)):
+                labels.append(f'R {group_labels[idx]}' if idx < len(group_labels) else f'R Group {idx+1}')
+                colors.append(pg.mkColor(PLOT_COLORS[idx % len(PLOT_COLORS)]))
+            
+            # Add event colors if visible
+            if show_events:
+                labels.extend([f'{GAIT_EVENT_HEEL_STRIKE_LABEL} (Heel Strike)', f'{GAIT_EVENT_TOE_OFF_LABEL} (Toe Off)'])
+                colors.extend([pg.mkColor(GAIT_EVENT_HEEL_STRIKE_COLOR), pg.mkColor(GAIT_EVENT_TOE_OFF_COLOR)])
+            
+            self.populate_horizontal_legend(labels, colors)
+        except Exception as e:
+            print(f"[PlotManager] Error updating legend with events: {e}", flush=True)
